@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ar" dir="rtl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>سجلات الجودة - نسخة أولى</title>
+<title>سجلات الجودة</title>
 <style>
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,Segoe UI,Tahoma,sans-serif;background:#f4f1ea;color:#222}
 header{background:#2f4a3a;color:#fff;padding:12px 14px;position:sticky;top:0;z-index:5}
@@ -13,127 +13,175 @@ nav button.on{background:#2f4a3a;color:#fff}
 main{padding:12px;max-width:900px;margin:auto}
 .card{background:#fff;border-radius:12px;padding:12px;margin-bottom:10px;box-shadow:0 1px 2px #0002}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.btn{border:0;border-radius:8px;padding:8px 12px;background:#2f4a3a;color:#fff;font-size:14px}
+.btn{border:0;border-radius:8px;padding:8px 12px;background:#2f4a3a;color:#fff;font-size:14px;cursor:pointer}
 .btn.alt{background:#d9d2c0;color:#222}.btn.red{background:#a33}
 input,select,textarea{font:inherit;padding:8px;border:1px solid #bbb;border-radius:8px;width:100%}
 label{font-size:13px;color:#555;display:block;margin-top:8px}
 .tag{font-size:12px;border-radius:10px;padding:2px 8px;background:#ddd}
-.t-approved{background:#bfe3c6}.t-review{background:#f5e3a1}.t-draft{background:#ddd}.t-open{background:#f4c1b8}.t-closed{background:#bfe3c6}.t-expired{background:#f4c1b8}
+.t-approved{background:#bfe3c6}.t-review{background:#f5e3a1}.t-draft{background:#ddd}.t-open{background:#f4c1b8}.t-closed{background:#bfe3c6}.t-expired{background:#f4c1b8}.t-soon{background:#f5e3a1}
 .muted{color:#777;font-size:13px}table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px solid #ddd;padding:4px;text-align:right}
 .warn{color:#a33}.ok{color:#2a7a3a}
+.attn{background:#fff3d6;border:1px solid #e0b64a;border-radius:12px;padding:10px;margin-bottom:12px}
+.attn.bad{background:#fde3df;border-color:#d9776b}
 .modal{position:fixed;inset:0;background:#0007;display:flex;align-items:flex-end;justify-content:center;z-index:9}
 .modal>div{background:#fff;width:100%;max-width:700px;max-height:90vh;overflow:auto;padding:14px;border-radius:14px 14px 0 0}
+#login{max-width:380px;margin:60px auto;padding:16px}
 </style></head><body>
-<header><h1>سجلات الجودة <small>نسخة أولى - بيانات تجريبية</small></h1>
-<div class="bar"><input id="q" placeholder="بحث في كل السجلات والملفات..."><button class="btn alt" id="exp">نسخة احتياطية</button></div></header>
+<div id="app" hidden>
+<header><h1>سجلات الجودة <small id="who"></small></h1>
+<div class="bar"><input id="q" placeholder="بحث في كل السجلات والملفات..."><button class="btn alt" id="exp">نسخة احتياطية</button><button class="btn alt" id="out">خروج</button></div></header>
 <nav id="nav"></nav><main id="main"></main><div id="modal"></div>
+</div>
+<div id="login" class="card" hidden>
+<h2 style="margin-top:0">سجلات الجودة</h2>
+<label>الإيميل</label><input id="le" type="email" autocomplete="username">
+<label>الباسورد</label><input id="lp" type="password" autocomplete="current-password">
+<p id="lerr" class="warn"></p>
+<button class="btn" id="lgo">دخول</button>
+</div>
 <script>
+const SB='https://sveeodfkamulioteaswz.supabase.co',KEY='sb_publishable_fGP6CNFXTke2k5pXyOwswQ_7v3kFTra',BUCKET='qd-files',MAXMB=50;
 const AREAS=[
- ['suppliers','الموردين والاستلام'],['docs','المستندات والإجراءات'],['calib','المعايرة'],
+ ['attn','تنبيهات الانتهاء'],['suppliers','الموردين والاستلام'],['docs','المستندات والإجراءات'],['calib','المعايرة'],
  ['training','التدريب'],['complaints','الشكاوى والإجراءات التصحيحية'],['audit','التدقيق'],['log','سجل التغييرات']];
+const AREA_REC=AREAS.filter(a=>!['attn','log'].includes(a[0]));
 const STATUS={draft:'مسودة',review:'تحت المراجعة',approved:'معتمد',open:'مفتوح',closed:'مغلق',expired:'منتهي'};
-const DOCSTAT=['draft','review','approved'], CASESTAT=['open','closed'];
-// ---- storage: records in localStorage, file blobs in IndexedDB
-let DB={records:[],log:[],seq:1};
-try{const s=localStorage.getItem('qd.v1');if(s)DB=JSON.parse(s)}catch(e){}
-const save=()=>localStorage.setItem('qd.v1',JSON.stringify(DB));
-let idb;const idbReady=new Promise(r=>{const q=indexedDB.open('qd-files',1);q.onupgradeneeded=()=>q.result.createObjectStore('f');q.onsuccess=()=>{idb=q.result;r()};q.onerror=()=>r()});
-const putBlob=(id,b)=>new Promise(r=>{const t=idb.transaction('f','readwrite');t.objectStore('f').put(b,id);t.oncomplete=r});
-const getBlob=id=>new Promise(r=>{const q=idb.transaction('f').objectStore('f').get(id);q.onsuccess=()=>r(q.result)});
-const uid=()=>'x'+(DB.seq++)+Date.now().toString(36);
-const now=()=>new Date().toISOString().slice(0,16).replace('T',' ');
-const logit=m=>{DB.log.unshift({t:now(),m});DB.log=DB.log.slice(0,500)};
+const DOCSTAT=['draft','review','approved'],CASESTAT=['open','closed'];
+let S=null;try{S=JSON.parse(localStorage.getItem('qd.session'))}catch(e){}
+let DB={records:[],log:[]};
+const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-// ---- sample data (fake)
-if(!DB.records.length){const d=(a,t,o)=>DB.records.push({id:uid(),area:a,title:t,date:'2026-11-0'+(1+DB.records.length%8),status:o.status||'open',notes:o.notes||'',extra:o.extra||'',files:[],versions:[]});
- d('suppliers','شحنة طماطم - مورد تجريبي (أ)',{status:'approved',extra:'ملف: شهادة تحليل'});
- d('suppliers','مورد عبوات - تقييم سنوي (تجريبي)',{status:'review',extra:'درجة التقييم: 82'});
- d('docs','إجراء النظافة الشخصية SOP-01',{status:'approved'});
- d('docs','خطة HACCP - مراجعة',{status:'review'});
- d('calib','ميزان خط التعبئة (تجريبي)',{status:'approved',extra:'الصلاحية: 2027-03-01'});
- d('calib','ترمومتر المخزن (تجريبي)',{status:'expired',extra:'الصلاحية: 2026-10-15'});
- d('training','تدريب النظافة - فريق الإنتاج',{status:'closed'});
- d('complaints','شكوى عبوة منفوخة (تجريبية)',{status:'open',notes:'السبب الجذري: قيد الدراسة'});
- d('audit','تدقيق داخلي - الربع الرابع',{status:'draft'});
- save()}
+const nowS=()=>new Date().toISOString().slice(0,16).replace('T',' ');
+const today=()=>new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+// ---------- network
+async function tokenReq(grant,body){const r=await fetch(SB+'/auth/v1/token?grant_type='+grant,{method:'POST',headers:{apikey:KEY,'Content-Type':'application/json'},body:JSON.stringify(body)});
+ const j=await r.json();if(!r.ok)throw new Error(j.error_description||j.msg||j.message||'فشل الدخول');
+ S={access:j.access_token,refresh:j.refresh_token,exp:j.expires_at,email:(j.user&&j.user.email)||(S&&S.email)||''};localStorage.setItem('qd.session',JSON.stringify(S));return S}
+async function refresh(){if(!S)throw new Error('no session');await tokenReq('refresh_token',{refresh_token:S.refresh})}
+async function req(path,opt={},retry=true){
+ if(S&&S.exp-Date.now()/1000<60){try{await refresh()}catch(e){signedOut();throw e}}
+ const h=Object.assign({apikey:KEY,Authorization:'Bearer '+S.access},opt.headers||{});
+ const r=await fetch(SB+path,Object.assign({},opt,{headers:h}));
+ if(r.status==401&&retry){try{await refresh()}catch(e){signedOut();throw e}return req(path,opt,false)}
+ if(!r.ok){let m=await r.text();try{m=JSON.parse(m).message||m}catch(e){}throw new Error(m)}
+ return r}
+const rest=async(path,method='GET',body)=>{const r=await req('/rest/v1/'+path,{method,headers:{'Content-Type':'application/json',Prefer:'return=representation'},body:body===undefined?undefined:JSON.stringify(body)});const t=await r.text();return t?JSON.parse(t):null};
+// ---------- data
+async function load(){
+ const [recs,log]=await Promise.all([rest('records?select=*,files(*)&order=created_at.desc'),rest('log?select=*&order=id.desc&limit=300')]);
+ DB.records=recs||[];DB.log=log||[];render()}
+const logit=async m=>{try{const r=await rest('log','POST',{m});if(r&&r[0])DB.log.unshift(r[0])}catch(e){}};
+// ---------- expiry
+function days(x){if(!x.expires)return null;return Math.round((Date.parse(x.expires)-Date.parse(today()))/864e5)}
+function expState(x){const d=days(x);if(d==null)return null;if(d<0)return'expired';if(d<=(x.remind_days??30))return'soon';return'ok'}
+function expTag(x){const d=days(x),s=expState(x);if(s=='expired')return`<span class="tag t-expired">منتهي من ${-d} يوم</span>`;
+ if(s=='soon')return`<span class="tag t-soon">${d==0?'ينتهي النهارده':'ينتهي بعد '+d+' يوم'}</span>`;return s=='ok'?`<span class="tag">ينتهي ${x.expires}</span>`:''}
+function attnList(){return DB.records.filter(x=>['expired','soon'].includes(expState(x))).sort((a,b)=>days(a)-days(b))}
+function publishAttn(){const l=attnList();window.QD_ATTN={date:today(),count:l.length,expired:l.filter(x=>expState(x)=='expired').length,
+ items:l.map(x=>({title:x.title,area:(AREAS.find(a=>a[0]==x.area)||[0,x.area])[1],expires:x.expires,days:days(x),state:expState(x)}))}}
+function attnBox(){const l=attnList();if(!l.length)return'';const bad=l.some(x=>expState(x)=='expired');
+ return`<div class="attn ${bad?'bad':''}" id="attn"><b>محتاج انتباه (${l.length})</b>`+l.map(x=>`<div style="margin-top:6px" onclick="open_('${x.id}')">${expTag(x)} ${esc(x.title)} <span class="muted">${(AREAS.find(a=>a[0]==x.area)||[0,''])[1]}</span></div>`).join('')+`</div>`}
+// ---------- UI
 let area='suppliers',query='';
-const nav=document.getElementById('nav'),main=document.getElementById('main'),modal=document.getElementById('modal');
-function drawNav(){nav.innerHTML=AREAS.map(a=>`<button class="${a[0]==area?'on':''}" onclick="go('${a[0]}')">${a[1]}</button>`).join('')}
-function go(a){area=a;query='';document.getElementById('q').value='';render()}
-document.getElementById('q').oninput=e=>{query=e.target.value.trim().toLowerCase();render()};
+const nav=$('nav'),main=$('main'),modal=$('modal');
+function drawNav(){const n=attnList().length;nav.innerHTML=AREAS.map(a=>`<button class="${a[0]==area?'on':''}" onclick="go('${a[0]}')">${a[1]}${a[0]=='attn'&&n?' ('+n+')':''}</button>`).join('')}
+function go(a){area=a;query='';$('q').value='';render()}
+$('q').oninput=e=>{query=e.target.value.trim().toLowerCase();render()};
 const tag=s=>`<span class="tag t-${s}">${STATUS[s]||s}</span>`;
 const stats=a=>a=='docs'?DOCSTAT:a=='audit'?['draft','review','approved']:a=='calib'?['approved','expired']:a=='suppliers'?['review','approved']:CASESTAT;
-function render(){drawNav();
- if(query){const r=DB.records.filter(x=>(x.title+x.notes+x.extra+x.files.map(f=>f.name).join()).toLowerCase().includes(query));
+const fl=x=>(x.files||[]).filter(f=>f.kind=='file'),vs=x=>(x.files||[]).filter(f=>f.kind=='version').sort((a,b)=>a.created_at<b.created_at?-1:1);
+function render(){publishAttn();drawNav();
+ if(query){const r=DB.records.filter(x=>(x.title+x.notes+x.extra+(x.files||[]).map(f=>f.name).join()).toLowerCase().includes(query));
   main.innerHTML=`<p class="muted">${r.length} نتيجة</p>`+r.map(card).join('');return}
- if(area=='log'){main.innerHTML=`<div class="card"><table>${DB.log.map(l=>`<tr><td>${l.t}</td><td>${esc(l.m)}</td></tr>`).join('')||'<tr><td>مفيش تغييرات</td></tr>'}</table></div>`;return}
+ if(area=='attn'){const l=attnList();main.innerHTML=attnBox()||'<div class="card"><p class="ok">مفيش حاجة منتهية أو قربت تنتهي.</p></div>';
+  main.innerHTML+=`<p class="muted">التنبيه بيظهر قبل الانتهاء بعدد الأيام المحدد في كل سجل (الافتراضي 30 يوم).</p>`;return}
+ if(area=='log'){main.innerHTML=`<div class="card"><table>${DB.log.map(l=>`<tr><td>${esc(new Date(l.t).toLocaleString('en-GB').slice(0,16))}</td><td>${esc(l.m)}</td></tr>`).join('')||'<tr><td>مفيش تغييرات</td></tr>'}</table></div>`;return}
  if(area=='audit'){auditView();return}
  const r=DB.records.filter(x=>x.area==area);
  const extra=area=='suppliers'?`<button class="btn alt" onclick="importCSV()">استيراد جدول (CSV)</button>`:'';
- main.innerHTML=`<div class="row" style="margin-bottom:10px"><button class="btn" onclick="edit()">+ سجل جديد</button>${extra}</div>`+(r.map(card).join('')||'<p class="muted">مفيش سجلات</p>')}
+ main.innerHTML=attnBox()+`<div class="row" style="margin-bottom:10px"><button class="btn" onclick="edit()">+ سجل جديد</button>${extra}</div>`+(r.map(card).join('')||'<p class="muted">مفيش سجلات</p>')}
 function card(x){const A=AREAS.find(a=>a[0]==x.area)[1];
- return `<div class="card" onclick="open_('${x.id}')"><div class="row"><b>${esc(x.title)}</b>${tag(x.status)}</div>
- <div class="muted">${A} - ${x.date} ${x.extra?' - '+esc(x.extra):''}</div>
- <div class="muted">📎 ${x.files.length} مرفق${x.area=='docs'?' - إصدارات: '+(x.versions.length||0):''}</div></div>`}
+ return `<div class="card" onclick="open_('${x.id}')"><div class="row"><b>${esc(x.title)}</b>${tag(x.status)}${expTag(x)}</div>
+ <div class="muted">${A} - ${x.date||''} ${x.extra?' - '+esc(x.extra):''}</div>
+ <div class="muted">📎 ${(x.files||[]).length} مرفق${x.area=='docs'?' - إصدارات: '+vs(x).length:''}</div></div>`}
 function show(h){modal.innerHTML=`<div class="modal" onclick="if(event.target==this)hide()"><div>${h}</div></div>`}
 function hide(){modal.innerHTML=''}
+const fmtSize=n=>n>1048576?(n/1048576).toFixed(1)+'MB':(n/1024).toFixed(0)+'KB';
 function open_(id){const x=DB.records.find(r=>r.id==id);if(!x)return;
- const isDoc=x.area=='docs';
- show(`<div class="row"><h3 style="margin:0;flex:1">${esc(x.title)}</h3>${tag(x.status)}</div>
- <p class="muted">${x.date} ${esc(x.extra)}</p><p>${esc(x.notes)}</p>
+ const isDoc=x.area=='docs',list=isDoc?vs(x):fl(x);
+ show(`<div class="row"><h3 style="margin:0;flex:1">${esc(x.title)}</h3>${tag(x.status)}${expTag(x)}</div>
+ <p class="muted">${x.date||''} ${esc(x.extra)}${x.expires?' - تاريخ الانتهاء: '+x.expires+' (تنبيه قبل '+x.remind_days+' يوم)':''}</p><p>${esc(x.notes)}</p>
  <h4>${isDoc?'الإصدارات':'المرفقات'}</h4>
- <div>${(isDoc?x.versions:x.files).map((f,i)=>`<div class="row" style="padding:4px 0"><span style="flex:1">📎 ${esc(f.name)} <span class="muted">${isDoc?'إصدار '+(i+1)+' - ':''}${f.t} - ${(f.size/1024).toFixed(0)}KB</span></span><button class="btn alt" onclick="dl('${f.id}','${esc(f.name)}')">تنزيل الأصل</button></div>`).join('')||'<p class="muted">مفيش ملفات</p>'}</div>
+ <div>${list.map((f,i)=>`<div class="row" style="padding:4px 0"><span style="flex:1">📎 ${esc(f.name)} <span class="muted">${isDoc?'إصدار '+(i+1)+' - ':''}${esc(new Date(f.created_at).toLocaleString('en-GB').slice(0,16))} - ${fmtSize(f.size)}</span></span><button class="btn alt" onclick="dl('${f.id}')">تنزيل الأصل</button></div>`).join('')||'<p class="muted">مفيش ملفات</p>'}</div>
  <label>${isDoc?'رفع إصدار جديد':'إضافة مرفق (PDF أو صورة أو Excel أو Word)'}</label>
  <input type="file" id="fi" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.csv,.doc,.docx" onchange="upload('${x.id}')">
- <p class="muted">الحد الأقصى 15MB. رفع الملف لا يعني إنه معتمد.</p>
- <label>الحالة</label><select onchange="setStat('${x.id}',this.value)">${stats(x.area).concat(Object.keys(STATUS)).filter((v,i,a)=>a.indexOf(v)==i&&(stats(x.area).includes(v)||v==x.status)).map(s=>`<option value="${s}" ${s==x.status?'selected':''}>${STATUS[s]}</option>`).join('')}</select>
+ <p class="muted" id="upmsg">الحد الأقصى ${MAXMB}MB. رفع الملف لا يعني إنه معتمد.</p>
+ <label>الحالة</label><select onchange="setStat('${x.id}',this.value)">${stats(x.area).concat([x.status]).filter((v,i,a)=>a.indexOf(v)==i).map(s=>`<option value="${s}" ${s==x.status?'selected':''}>${STATUS[s]}</option>`).join('')}</select>
  <div class="row" style="margin-top:12px"><button class="btn" onclick="edit('${x.id}')">تعديل</button><button class="btn red" id="del" onclick="del('${x.id}')">حذف</button><button class="btn alt" onclick="hide()">إغلاق</button></div>`)}
-async function upload(id){const f=document.getElementById('fi').files[0];if(!f)return;
- if(f.size>15*1024*1024){alert('الملف أكبر من 15MB');return}
- const x=DB.records.find(r=>r.id==id),fid=uid();await putBlob(fid,f);
- const m={id:fid,name:f.name,size:f.size,t:now()};
- if(x.area=='docs'){x.versions.push(m);x.status='review'}else x.files.push(m);
- logit(`رفع ملف "${f.name}" إلى "${x.title}"`);save();render();open_(id)}
-async function dl(fid,name){const b=await getBlob(fid);if(!b){alert('الملف مش موجود على الجهاز ده');return}
- const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;a.click()}
-function setStat(id,s){const x=DB.records.find(r=>r.id==id);logit(`تغيير حالة "${x.title}" من ${STATUS[x.status]} إلى ${STATUS[s]}`);x.status=s;save();render();open_(id)}
-function del(id){const b=document.getElementById('del');if(!b.dataset.s){b.dataset.s=1;b.textContent='اضغط تاني للتأكيد';return}
- const x=DB.records.find(r=>r.id==id);logit(`حذف "${x.title}"`);DB.records=DB.records.filter(r=>r.id!=id);save();hide();render()}
-function edit(id){const x=id?DB.records.find(r=>r.id==id):{title:'',date:now().slice(0,10),notes:'',extra:'',status:stats(area)[0]};
+async function upload(id){const f=$('fi').files[0];if(!f)return;
+ if(f.size>MAXMB*1024*1024){alert('الملف أكبر من '+MAXMB+'MB');return}
+ const x=DB.records.find(r=>r.id==id),m=$('upmsg');m.textContent='جاري الرفع...';
+ try{const ext=(f.name.match(/\.[A-Za-z0-9]{1,8}$/)||[''])[0],path=id+'/'+crypto.randomUUID()+ext;
+  await req('/storage/v1/object/'+BUCKET+'/'+path,{method:'POST',headers:{'Content-Type':f.type||'application/octet-stream'},body:f});
+  const isDoc=x.area=='docs';
+  const r=await rest('files','POST',{record_id:id,kind:isDoc?'version':'file',name:f.name,size:f.size,path});
+  x.files=(x.files||[]).concat(r);
+  if(isDoc&&x.status!='review'){await rest('records?id=eq.'+id,'PATCH',{status:'review'});x.status='review'}
+  await logit(`رفع ملف "${f.name}" إلى "${x.title}"`);render();open_(id)}catch(e){m.textContent='';alert('فشل الرفع: '+e.message)}}
+async function dl(fid){let f=null;for(const r of DB.records){f=(r.files||[]).find(z=>z.id==fid);if(f)break}if(!f)return;
+ try{const r=await req('/storage/v1/object/authenticated/'+BUCKET+'/'+f.path);const b=await r.blob();
+  const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=f.name;document.body.appendChild(a);a.click();a.remove()}catch(e){alert('فشل التنزيل: '+e.message)}}
+async function setStat(id,s){const x=DB.records.find(r=>r.id==id);try{await rest('records?id=eq.'+id,'PATCH',{status:s});
+ await logit(`تغيير حالة "${x.title}" من ${STATUS[x.status]} إلى ${STATUS[s]}`);x.status=s;render();open_(id)}catch(e){alert(e.message)}}
+async function del(id){const b=$('del');if(!b.dataset.s){b.dataset.s=1;b.textContent='اضغط تاني للتأكيد';return}
+ const x=DB.records.find(r=>r.id==id);try{const paths=(x.files||[]).map(f=>f.path);
+  if(paths.length)await req('/storage/v1/object/'+BUCKET,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({prefixes:paths})});
+  await rest('records?id=eq.'+id,'DELETE');await logit(`حذف "${x.title}"`);DB.records=DB.records.filter(r=>r.id!=id);hide();render()}catch(e){alert(e.message)}}
+function edit(id){const x=id?DB.records.find(r=>r.id==id):{title:'',date:today(),notes:'',extra:'',expires:'',remind_days:30};
  show(`<h3>${id?'تعديل':'سجل جديد'}</h3><label>العنوان</label><input id="e1" value="${esc(x.title)}">
- <label>التاريخ</label><input id="e2" type="date" value="${x.date}"><label>تفاصيل (مثلا الصلاحية أو الدرجة)</label><input id="e3" value="${esc(x.extra)}">
+ <label>التاريخ</label><input id="e2" type="date" value="${x.date||''}"><label>تفاصيل (مثلا الدرجة أو رقم الشهادة)</label><input id="e3" value="${esc(x.extra)}">
+ <label>تاريخ الانتهاء (لو فيه، مثلا شهادة أو معايرة)</label><input id="e5" type="date" value="${x.expires||''}">
+ <label>نبهني قبل الانتهاء بكام يوم</label><input id="e6" type="number" min="0" max="365" value="${x.remind_days??30}">
  <label>ملاحظات</label><textarea id="e4" rows="3">${esc(x.notes)}</textarea>
  <div class="row" style="margin-top:12px"><button class="btn" onclick="saveRec('${id||''}')">حفظ</button><button class="btn alt" onclick="hide()">إلغاء</button></div>`)}
-function saveRec(id){const t=e1.value.trim();if(!t){alert('اكتب عنوان');return}
- if(id){const x=DB.records.find(r=>r.id==id);Object.assign(x,{title:t,date:e2.value,extra:e3.value,notes:e4.value});logit(`تعديل "${t}"`)}
- else{DB.records.push({id:uid(),area,title:t,date:e2.value,extra:e3.value,notes:e4.value,status:stats(area)[0],files:[],versions:[]});logit(`سجل جديد "${t}"`)}
- save();hide();render()}
-// ---- CSV import with preview and warnings
+async function saveRec(id){const t=$('e1').value.trim();if(!t){alert('اكتب عنوان');return}
+ const row={title:t,date:$('e2').value||null,extra:$('e3').value,notes:$('e4').value,expires:$('e5').value||null,remind_days:parseInt($('e6').value)||0};
+ try{if(id){const r=await rest('records?id=eq.'+id,'PATCH',row);const x=DB.records.find(z=>z.id==id);Object.assign(x,r[0]);await logit(`تعديل "${t}"`)}
+ else{const a=AREA_REC.some(z=>z[0]==area)?area:'suppliers';row.area=a;row.status=stats(a)[0];const r=await rest('records','POST',row);r[0].files=[];DB.records.unshift(r[0]);await logit(`سجل جديد "${t}"`)}
+ hide();render()}catch(e){alert(e.message)}}
+// ---------- CSV import with preview and warnings
 function parseCSV(s){const rows=[];let r=[],c='',q=false;for(let i=0;i<s.length;i++){const ch=s[i];
  if(q){if(ch=='"'&&s[i+1]=='"'){c+='"';i++}else if(ch=='"')q=false;else c+=ch}
  else if(ch=='"')q=true;else if(ch==','||ch==';'){r.push(c);c=''}else if(ch=='\n'){r.push(c);rows.push(r);r=[];c=''}else if(ch!='\r')c+=ch}
  if(c||r.length){r.push(c);rows.push(r)}return rows}
-function importCSV(){show(`<h3>استيراد موردين</h3><p class="muted">من Excel احفظ الملف كـ CSV. الأعمدة: اسم المورد، التاريخ (YYYY-MM-DD)، الدرجة، ملاحظات. السطر الأول عناوين.</p>
+function importCSV(){show(`<h3>استيراد موردين</h3><p class="muted">من Excel احفظ الملف كـ CSV. الأعمدة: اسم المورد، التاريخ (YYYY-MM-DD)، الدرجة، ملاحظات، تاريخ الانتهاء (اختياري). السطر الأول عناوين.</p>
  <input type="file" accept=".csv,text/csv" onchange="previewCSV(this.files[0])"><div id="pv"></div>
  <div class="row" style="margin-top:12px"><button class="btn alt" onclick="hide()">إغلاق</button></div>`)}
-let pending=[];
+let pending=[];const DRE=/^\d{4}-\d{2}-\d{2}$/;
 async function previewCSV(f){if(!f)return;const rows=parseCSV(await f.text()).slice(1).filter(r=>r.some(x=>x.trim()));
- pending=[];const seen=new Set();const html=rows.map((r,i)=>{const w=[];const name=(r[0]||'').trim(),date=(r[1]||'').trim(),score=(r[2]||'').trim();
-  if(!name)w.push('اسم المورد فاضي');if(date&&!/^\d{4}-\d{2}-\d{2}$/.test(date))w.push('تاريخ غير صالح');if(score&&isNaN(+score))w.push('الدرجة مش رقم');
+ pending=[];const seen=new Set();const html=rows.map((r,i)=>{const w=[];const name=(r[0]||'').trim(),date=(r[1]||'').trim(),score=(r[2]||'').trim(),ex=(r[4]||'').trim();
+  if(!name)w.push('اسم المورد فاضي');if(date&&!DRE.test(date))w.push('تاريخ غير صالح');if(score&&isNaN(+score))w.push('الدرجة مش رقم');if(ex&&!DRE.test(ex))w.push('تاريخ الانتهاء غير صالح');
   if(name&&(DB.records.some(x=>x.area=='suppliers'&&x.title==name)||seen.has(name)))w.push('اسم موجود قبل كده (اتخطى)');seen.add(name);
-  const bad=w.length>0;if(!bad)pending.push({name,date:/^\d{4}-\d{2}-\d{2}$/.test(date)?date:now().slice(0,10),score,notes:(r[3]||'').trim()});
+  const bad=w.length>0;if(!bad)pending.push({name,date:DRE.test(date)?date:today(),score,notes:(r[3]||'').trim(),expires:ex||null});
   return `<tr><td>${i+1}</td><td>${esc(name)}</td><td>${esc(date)}</td><td>${esc(score)}</td><td class="${w.length?'warn':'ok'}">${w.join('، ')||'سليم'}</td></tr>`}).join('');
- document.getElementById('pv').innerHTML=`<table><tr><th>#</th><th>المورد</th><th>التاريخ</th><th>الدرجة</th><th>تحذيرات</th></tr>${html}</table>
+ $('pv').innerHTML=`<table><tr><th>#</th><th>المورد</th><th>التاريخ</th><th>الدرجة</th><th>تحذيرات</th></tr>${html}</table>
  <p>${pending.length} صف سيتم استيراده (الصفوف الغلط بتتخطى). <button class="btn" onclick="confirmImport()">تأكيد الاستيراد</button></p>`}
-function confirmImport(){pending.forEach(p=>DB.records.push({id:uid(),area:'suppliers',title:p.name,date:p.date,status:'review',extra:p.score?'درجة التقييم: '+p.score:'',notes:p.notes,files:[],versions:[]}));
- logit(`استيراد ${pending.length} مورد من CSV`);save();hide();render()}
-// ---- audit pack: links requirements to records; attachment is not proof of compliance
+async function confirmImport(){if(!pending.length){hide();return}
+ try{const rows=pending.map(p=>({area:'suppliers',title:p.name,date:p.date,status:'review',extra:p.score?'درجة التقييم: '+p.score:'',notes:p.notes,expires:p.expires}));
+ const r=await rest('records','POST',rows);r.forEach(z=>{z.files=[];DB.records.unshift(z)});await logit(`استيراد ${rows.length} مورد من CSV`);hide();render()}catch(e){alert(e.message)}}
+// ---------- audit pack
 function auditView(){const reqs=[['موردين معتمدين','suppliers'],['إجراءات معتمدة','docs'],['معايرة سارية','calib'],['سجلات تدريب','training'],['شكاوى مقفولة','complaints']];
- main.innerHTML=`<div class="card"><b>حزمة التدقيق</b><p class="muted">الجدول بيعرض الحالة المسجلة فقط. وجود مرفق لا يثبت المطابقة، المراجعة مطلوبة.</p><table><tr><th>المتطلب</th><th>سجلات</th><th>معتمد/مقفول</th><th>محتاج متابعة</th></tr>`+
- reqs.map(([n,a])=>{const r=DB.records.filter(x=>x.area==a),ok=r.filter(x=>['approved','closed'].includes(x.status)).length;return `<tr><td>${n}</td><td>${r.length}</td><td class="ok">${ok}</td><td class="${r.length-ok?'warn':''}">${r.length-ok}</td></tr>`}).join('')+`</table></div>`
- +`<div class="card"><b>تنبيهات</b>`+(DB.records.filter(x=>['expired','open','review'].includes(x.status)).map(x=>`<div>${tag(x.status)} ${esc(x.title)}</div>`).join('')||'<p class="muted">مفيش</p>')+`</div>`
+ main.innerHTML=attnBox()+`<div class="card"><b>حزمة التدقيق</b><p class="muted">الجدول بيعرض الحالة المسجلة فقط. وجود مرفق لا يثبت المطابقة، المراجعة مطلوبة.</p><table><tr><th>المتطلب</th><th>سجلات</th><th>معتمد/مقفول</th><th>محتاج متابعة</th></tr>`+
+ reqs.map(([n,a])=>{const r=DB.records.filter(x=>x.area==a),ok=r.filter(x=>['approved','closed'].includes(x.status)&&expState(x)!='expired').length;return `<tr><td>${n}</td><td>${r.length}</td><td class="ok">${ok}</td><td class="${r.length-ok?'warn':''}">${r.length-ok}</td></tr>`}).join('')+`</table></div>`
+ +`<div class="card"><b>تنبيهات حالة</b>`+(DB.records.filter(x=>['expired','open','review'].includes(x.status)).map(x=>`<div>${tag(x.status)} ${esc(x.title)}</div>`).join('')||'<p class="muted">مفيش</p>')+`</div>`
  +`<div class="row"><button class="btn" onclick="edit()">+ سجل تدقيق</button></div>`+DB.records.filter(x=>x.area=='audit').map(card).join('')}
-document.getElementById('exp').onclick=()=>{const b=new Blob([JSON.stringify(DB)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='qd-backup.json';a.click()};
-idbReady.then(render);
+$('exp').onclick=()=>{const b=new Blob([JSON.stringify({exported:nowS(),records:DB.records,log:DB.log},null,1)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='qd-backup-'+today()+'.json';a.click()};
+// ---------- auth
+function signedOut(){S=null;localStorage.removeItem('qd.session');$('app').hidden=true;$('login').hidden=false}
+async function start(){$('login').hidden=true;$('app').hidden=false;$('who').textContent=S.email||'';try{await load()}catch(e){if(!S)return;main.innerHTML='<div class="card warn">تعذر تحميل البيانات: '+esc(e.message)+'</div>'}}
+$('lgo').onclick=async()=>{$('lerr').textContent='';try{await tokenReq('password',{email:$('le').value.trim(),password:$('lp').value});$('lp').value='';start()}catch(e){$('lerr').textContent=e.message}};
+$('lp').onkeydown=e=>{if(e.key=='Enter')$('lgo').click()};
+$('out').onclick=()=>{signedOut()};
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S&&!$('app').hidden&&!modal.innerHTML)load().catch(()=>{})});
+if(S)start();else $('login').hidden=false;
 </script></body></html>
-<script async src="/.netlify/scripts/hud?variant=public" data-nf-variant="public" data-netlify-site-id="e6e0bbca-9fd9-4552-a28c-fdcf3cc5fa75" data-app-host="app.netlify.com" data-account-tier="free"></script>
