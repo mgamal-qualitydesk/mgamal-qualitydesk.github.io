@@ -49,7 +49,7 @@ function rebuildAreas(){AREAS.length=0;BASEAREAS.slice(0,-1).forEach(a=>AREAS.pu
 const STATUS={draft:'مسودة',review:'تحت المراجعة',approved:'معتمد',open:'مفتوح',closed:'مغلق',expired:'منتهي'};
 const DOCSTAT=['draft','review','approved'],CASESTAT=['open','closed'];
 let S=null;try{S=JSON.parse(localStorage.getItem('qd.session'))}catch(e){}
-let DB={records:[],log:[],branches:[],sections:[]};let br='all';const BASEN=0;
+let DB={records:[],log:[],branches:[],sections:[]};let br='all',sbr=null;const kidsOf=id=>DB.branches.filter(b=>b.parent==id),descIds=id=>[id,...kidsOf(id).map(b=>b.id)],bname=id=>(DB.branches.find(b=>b.id==id)||{}).name||'';const BASEN=0;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const nowS=()=>new Date().toISOString().slice(0,16).replace('T',' ');
@@ -86,7 +86,7 @@ function attnBox(){const l=attnList();if(!l.length)return'';const bad=l.some(x=>
 let area='suppliers',query='';
 const nav=$('nav'),main=$('main'),modal=$('modal');
 function drawNav(){const n=attnList().length;nav.innerHTML=AREAS.map(a=>`<button class="${a[0]==area?'on':''}" onclick="go('${a[0]}')">${a[1]}${a[0]=='attn'&&n?' ('+n+')':''}</button>`).join('')+`<button class="alt" onclick="addSection()">+ قسم</button>`}
-function go(a){area=a;br='all';query='';$('q').value='';render()}
+function go(a){area=a;br='all';sbr=null;query='';$('q').value='';render()}
 $('q').oninput=e=>{query=e.target.value.trim().toLowerCase();render()};
 const tag=s=>`<span class="tag t-${s}">${STATUS[s]||s}</span>`;
 const stats=a=>a=='docs'?DOCSTAT:a=='audit'?['draft','review','approved']:a=='calib'?['approved','expired']:a=='suppliers'?['review','approved']:/^c_/.test(a)?DOCSTAT:['trace','haccp','specs','iaudit','objectives','pest','swabs','cleaning','certs','policies'].includes(a)?DOCSTAT:CASESTAT;
@@ -98,15 +98,18 @@ function render(){publishAttn();drawNav();
   main.innerHTML+=`<p class="muted">التنبيه بيظهر قبل الانتهاء بعدد الأيام المحدد في كل سجل (الافتراضي 30 يوم).</p>`;return}
  if(area=='log'){main.innerHTML=`<div class="card"><table>${DB.log.map(l=>`<tr><td>${esc(new Date(l.t).toLocaleString('en-GB').slice(0,16))}</td><td>${esc(l.m)}</td></tr>`).join('')||'<tr><td>مفيش تغييرات</td></tr>'}</table></div>`;return}
  if(area=='audit'){auditView();return}
- const brs=DB.branches.filter(b=>b.area==area);if(br!='all'&&br!='none'&&!brs.some(b=>b.id==br))br='all';
- const r=DB.records.filter(x=>x.area==area&&(br=='all'||(br=='none'?!x.branch:x.branch==br)));
+ const brs=DB.branches.filter(b=>b.area==area&&!b.parent);if(br!='all'&&br!='none'&&!brs.some(b=>b.id==br)){br='all';sbr=null}
+ const kids=br!='all'&&br!='none'?kidsOf(br):[];if(sbr&&sbr!='self'&&!kids.some(k=>k.id==sbr))sbr=null;
+ const inBr=(x,id)=>descIds(id).includes(x.branch);
+ const r=DB.records.filter(x=>x.area==area&&(br=='all'||(br=='none'?!x.branch||!DB.branches.some(b=>b.id==x.branch):(!sbr?inBr(x,br):sbr=='self'?x.branch==br:x.branch==sbr))));
  const cnt=f=>DB.records.filter(x=>x.area==area&&f(x)).length;
- const bbar=`<div class="row" style="margin-bottom:10px;flex-wrap:wrap"><button class="btn${br=='all'?'':' alt'}" onclick="setBr('all')">الكل (${cnt(()=>true)})</button>${brs.map(b=>`<button class="btn${br==b.id?'':' alt'}" onclick="setBr('${b.id}')">${esc(b.name)} (${cnt(x=>x.branch==b.id)})</button>`).join('')}${brs.length?`<button class="btn${br=='none'?'':' alt'}" onclick="setBr('none')">بدون فرع (${cnt(x=>!x.branch||!brs.some(b=>b.id==x.branch))})</button>`:''}<button class="btn alt" onclick="addBranch()">+ فرع</button>${br!='all'&&br!='none'?`<button class="btn alt" onclick="delBranch('${br}')" id="dbr">حذف الفرع</button>`:''}${!brs.length&&/^c_/.test(area)&&!DB.records.some(x=>x.area==area)?`<button class="btn alt" onclick="delSection()" id="dsec">حذف القسم</button>`:''}</div>`;
+ const bbar=`<div class="row" style="margin-bottom:10px;flex-wrap:wrap"><button class="btn${br=='all'?'':' alt'}" onclick="setBr('all')">الكل (${cnt(()=>true)})</button>${brs.map(b=>`<button class="btn${br==b.id?'':' alt'}" onclick="setBr('${b.id}')">${esc(b.name)} (${cnt(x=>inBr(x,b.id))})</button>`).join('')}${brs.length?`<button class="btn${br=='none'?'':' alt'}" onclick="setBr('none')">بدون فرع (${cnt(x=>!x.branch||!DB.branches.some(b=>b.id==x.branch))})</button>`:''}<button class="btn alt" onclick="addBranch()">+ فرع</button>${br!='all'&&br!='none'&&!sbr?`<button class="btn alt" onclick="delBranch('${br}')" id="dbr">حذف الفرع</button>`:''}${!brs.length&&/^c_/.test(area)&&!DB.records.some(x=>x.area==area)?`<button class="btn alt" onclick="delSection()" id="dsec">حذف القسم</button>`:''}</div>`
+ +(br!='all'&&br!='none'?`<div class="row" style="margin:-4px 0 10px;flex-wrap:wrap;padding-right:14px"><span class="muted">${esc(bname(br))}:</span><button class="btn${!sbr?'':' alt'}" onclick="setSub(null)">الكل (${cnt(x=>inBr(x,br))})</button>${kids.map(k=>`<button class="btn${sbr==k.id?'':' alt'}" onclick="setSub('${k.id}')">${esc(k.name)} (${cnt(x=>x.branch==k.id)})</button>`).join('')}${kids.length?`<button class="btn${sbr=='self'?'':' alt'}" onclick="setSub('self')">بدون فرع فرعي (${cnt(x=>x.branch==br)})</button>`:''}<button class="btn alt" onclick="addSub()">+ فرع فرعي</button>${sbr&&sbr!='self'?`<button class="btn alt" onclick="delBranch('${sbr}')" id="dbr">حذف الفرع الفرعي</button>`:''}</div>`:'');
  const extra=area=='suppliers'?`<button class="btn alt" onclick="importCSV()">استيراد جدول (CSV)</button>`:'';
  main.innerHTML=attnBox()+bbar+`<div class="row" style="margin-bottom:10px"><button class="btn" onclick="edit()">+ سجل جديد</button>${extra}</div>`+(r.map(card).join('')||'<p class="muted">مفيش سجلات</p>')}
 function card(x){const A=AREAS.find(a=>a[0]==x.area)[1];
  return `<div class="card" onclick="open_('${x.id}')"><div class="row"><b>${esc(x.title)}</b>${tag(x.status)}${expTag(x)}</div>
- <div class="muted">${A}${x.branch&&DB.branches.find(b=>b.id==x.branch)?' / '+esc(DB.branches.find(b=>b.id==x.branch).name):''} - ${x.date||''} ${x.extra?' - '+esc(x.extra):''}</div>
+ <div class="muted">${A}${x.branch&&DB.branches.find(b=>b.id==x.branch)?' / '+esc(brPath(x.branch)):''} - ${x.date||''} ${x.extra?' - '+esc(x.extra):''}</div>
  <div class="muted">📎 ${(x.files||[]).length} مرفق${x.area=='docs'?' - إصدارات: '+vs(x).length:''}</div></div>`}
 function show(h){modal.innerHTML=`<div class="modal" onclick="if(event.target==this)hide()"><div>${h}</div></div>`}
 function hide(){modal.innerHTML=''}
@@ -209,9 +212,11 @@ async function del(id){const b=$('del');if(!b.dataset.s){b.dataset.s=1;b.textCon
  const x=DB.records.find(r=>r.id==id);try{const paths=(x.files||[]).map(f=>f.path);
   if(paths.length)await req('/storage/v1/object/'+BUCKET,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({prefixes:paths})});
   await rest('records?id=eq.'+id,'DELETE');await logit(`حذف "${x.title}"`);DB.records=DB.records.filter(r=>r.id!=id);hide();render()}catch(e){alert(e.message)}}
-function brOpts(a,sel){return '<option value="">بدون فرع</option>'+DB.branches.filter(b=>b.area==a).map(b=>`<option value="${b.id}"${b.id==sel?' selected':''}>${esc(b.name)}</option>`).join('')}
+const brPath=id=>{const b=DB.branches.find(z=>z.id==id);return b?(b.parent?bname(b.parent)+' / ':'')+b.name:''};
+function brOpts(a,sel){return '<option value="">بدون فرع</option>'+DB.branches.filter(b=>b.area==a&&!b.parent).map(b=>`<option value="${b.id}"${b.id==sel?' selected':''}>${esc(b.name)}</option>`+kidsOf(b.id).map(k=>`<option value="${k.id}"${k.id==sel?' selected':''}>&nbsp;&nbsp;↳ ${esc(k.name)}</option>`).join('')).join('')}
+function brOptsOld(a,sel){return '<option value="">بدون فرع</option>'+DB.branches.filter(b=>b.area==a).map(b=>`<option value="${b.id}"${b.id==sel?' selected':''}>${esc(b.name)}</option>`).join('')}
 function secChg(){$('e8').innerHTML=brOpts($('e7').value,'')}
-function edit(id){const x=id?DB.records.find(r=>r.id==id):{title:'',date:today(),notes:'',extra:'',expires:'',remind_days:30,area:(AREA_REC.some(z=>z[0]==area)?area:'suppliers'),branch:(br!='all'&&br!='none'?br:null)};
+function edit(id){const x=id?DB.records.find(r=>r.id==id):{title:'',date:today(),notes:'',extra:'',expires:'',remind_days:30,area:(AREA_REC.some(z=>z[0]==area)?area:'suppliers'),branch:(sbr&&sbr!='self'?sbr:(br!='all'&&br!='none'?br:null))};
  const lock=id&&(x.area=='docs'||vs(x).length>0);
  show(`<h3>${id?'تعديل':'سجل جديد'}</h3><label>القسم${lock?' (المستندات والإجراءات: مقفول)':''}</label><select id="e7" onchange="secChg()"${lock?' disabled':''}>${AREAS.filter(a=>!['attn','log','audit'].includes(a[0])||a[0]==x.area).map(a=>`<option value="${a[0]}"${a[0]==x.area?' selected':''}>${esc(a[1])}</option>`).join('')}</select><label>الفرع</label><select id="e8">${brOpts(x.area,x.branch)}</select><label>العنوان</label><input id="e1" value="${esc(x.title)}">
  <label>التاريخ</label><input id="e2" type="date" value="${x.date||''}"><label>تفاصيل (مثلا الدرجة أو رقم الشهادة)</label><input id="e3" value="${esc(x.extra)}">
@@ -247,12 +252,16 @@ async function confirmImport(){if(!pending.length){hide();return}
  const r=await rest('records','POST',rows);r.forEach(z=>{z.files=[];DB.records.unshift(z)});await logit(`استيراد ${rows.length} مورد من CSV`);hide();render()}catch(e){alert(e.message)}}
 
 // ---------- branches and sections
-function setBr(b){br=b;render()}
+function setBr(b){br=b;sbr=null;render()}
+function setSub(b){sbr=b;render()}
+async function addSub(){const n=(prompt('اسم الفرع الفرعي تحت "'+bname(br)+'"')||'').trim();if(!n)return;
+ try{const r=await rest('branches','POST',{area,name:n,parent:br});DB.branches.push(r[0]);await logit(`فرع فرعي جديد "${n}" تحت "${bname(br)}"`);sbr=r[0].id;render()}catch(e){alert(e.message)}}
 async function addBranch(){const n=(prompt('اسم الفرع الجديد')||'').trim();if(!n)return;
  try{const r=await rest('branches','POST',{area,name:n});DB.branches.push(r[0]);await logit(`فرع جديد "${n}"`);br=r[0].id;render()}catch(e){alert(e.message)}}
-async function delBranch(id){const b=$('dbr');if(!b.dataset.s){b.dataset.s=1;b.textContent='اضغط تاني للتأكيد';return}
- const x=DB.branches.find(z=>z.id==id);try{await rest('records?branch=eq.'+id,'PATCH',{branch:null});await rest('branches?id=eq.'+id,'DELETE');
-  DB.records.forEach(r=>{if(r.branch==id)r.branch=null});DB.branches=DB.branches.filter(z=>z.id!=id);await logit(`حذف فرع "${x.name}" (السجلات رجعت بدون فرع)`);br='all';render()}catch(e){alert(e.message)}}
+async function delBranch(id){const bt=$('dbr');if(!bt.dataset.s){bt.dataset.s=1;bt.textContent='اضغط تاني للتأكيد';return}
+ const x=DB.branches.find(z=>z.id==id);const par=x.parent||null;const ids=descIds(id);
+ try{await rest('records?branch=in.('+ids.join(',')+')','PATCH',{branch:par});await rest('branches?id=eq.'+id,'DELETE');
+  DB.records.forEach(r=>{if(ids.includes(r.branch))r.branch=par});DB.branches=DB.branches.filter(z=>!ids.includes(z.id));await logit(`حذف فرع "${x.name}" (السجلات رجعت للفرع الأعلى أو بدون فرع)`);if(par){sbr=null}else{br='all';sbr=null}render()}catch(e){alert(e.message)}}
 async function addSection(){const n=(prompt('اسم القسم الجديد')||'').trim();if(!n)return;
  try{const key='c_'+Date.now().toString(36);const r=await rest('sections','POST',{key,name:n});DB.sections.push(r[0]);rebuildAreas();await logit(`قسم جديد "${n}"`);go(key)}catch(e){alert(e.message)}}
 async function delSection(){const b=$('dsec');if(!b.dataset.s){b.dataset.s=1;b.textContent='اضغط تاني للتأكيد';return}
@@ -260,7 +269,7 @@ async function delSection(){const b=$('dsec');if(!b.dataset.s){b.dataset.s=1;b.t
 // ---------- audit pack
 function auditView(){const reqs=AREAS.filter(z=>!['attn','log','audit'].includes(z[0])).map(z=>[z[1],z[0]]);
  main.innerHTML=attnBox()+`<div class="card"><b>حزمة التدقيق</b><p class="muted">الجدول بيعرض الحالة المسجلة فقط. وجود مرفق لا يثبت المطابقة، المراجعة مطلوبة.</p><table><tr><th>المتطلب</th><th>سجلات</th><th>معتمد/مقفول</th><th>محتاج متابعة</th></tr>`+
- reqs.map(([n,a])=>{const row=(nm,r,ind)=>{const ok=r.filter(x=>['approved','closed'].includes(x.status)&&expState(x)!='expired').length;return `<tr><td style="${ind?'padding-right:18px;color:#666':''}">${ind?'↳ ':''}${esc(nm)}</td><td>${r.length}</td><td class="ok">${ok}</td><td class="${r.length-ok?'warn':''}">${r.length-ok}</td></tr>`},all=DB.records.filter(x=>x.area==a);return row(n,all,false)+DB.branches.filter(b=>b.area==a).map(b=>row(b.name,all.filter(x=>x.branch==b.id),true)).join('')}).join('')+`</table></div>`
+ reqs.map(([n,a])=>{const row=(nm,r,ind)=>{const ok=r.filter(x=>['approved','closed'].includes(x.status)&&expState(x)!='expired').length;return `<tr><td style="${ind?'padding-right:'+(ind*18)+'px;color:#666':''}">${ind?'↳ ':''}${esc(nm)}</td><td>${r.length}</td><td class="ok">${ok}</td><td class="${r.length-ok?'warn':''}">${r.length-ok}</td></tr>`},all=DB.records.filter(x=>x.area==a);return row(n,all,false)+DB.branches.filter(b=>b.area==a&&!b.parent).map(b=>row(b.name,all.filter(x=>descIds(b.id).includes(x.branch)),1)+kidsOf(b.id).map(k=>row(k.name,all.filter(x=>x.branch==k.id),2)).join('')).join('')}).join('')+`</table></div>`
  +`<div class="card"><b>تنبيهات حالة</b>`+(DB.records.filter(x=>['expired','open','review'].includes(x.status)).map(x=>`<div>${tag(x.status)} ${esc(x.title)}</div>`).join('')||'<p class="muted">مفيش</p>')+`</div>`
  +`<div class="row"><button class="btn" onclick="edit()">+ سجل تدقيق</button></div>`+DB.records.filter(x=>x.area=='audit').map(card).join('')}
 $('exp').onclick=()=>{const b=new Blob([JSON.stringify({exported:nowS(),records:DB.records,log:DB.log,branches:DB.branches,sections:DB.sections},null,1)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='qd-backup-'+today()+'.json';a.click()};
