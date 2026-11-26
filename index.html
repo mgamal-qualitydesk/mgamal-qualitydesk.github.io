@@ -43,7 +43,7 @@ label{font-size:13px;color:#555;display:block;margin-top:8px}
 const SB='https://sveeodfkamulioteaswz.supabase.co',KEY='sb_publishable_fGP6CNFXTke2k5pXyOwswQ_7v3kFTra',BUCKET='qd-files',MAXMB=50;
 const AREAS=[
  ['attn','تنبيهات الانتهاء'],['suppliers','الموردين والاستلام'],['docs','المستندات والإجراءات'],['calib','المعايرة'],
- ['training','التدريب'],['complaints','الشكاوى والإجراءات التصحيحية'],['audit','التدقيق'],['log','سجل التغييرات']];
+ ['training','التدريب'],['complaints','الشكاوى والإجراءات التصحيحية'],['audit','التدقيق'],['trace','التتبع'],['haccp','الهاسب'],['specs','المواصفات'],['iaudit','التدقيق الداخلي'],['objectives','الأهداف'],['pest','المكافحة'],['swabs','المسحات الميكروبية'],['cleaning','النظافة والتعقيم'],['certs','شهادات الشركة'],['policies','التعليمات والسياسات'],['log','سجل التغييرات']];
 const AREA_REC=AREAS.filter(a=>!['attn','log'].includes(a[0]));
 const STATUS={draft:'مسودة',review:'تحت المراجعة',approved:'معتمد',open:'مفتوح',closed:'مغلق',expired:'منتهي'};
 const DOCSTAT=['draft','review','approved'],CASESTAT=['open','closed'];
@@ -88,7 +88,7 @@ function drawNav(){const n=attnList().length;nav.innerHTML=AREAS.map(a=>`<button
 function go(a){area=a;query='';$('q').value='';render()}
 $('q').oninput=e=>{query=e.target.value.trim().toLowerCase();render()};
 const tag=s=>`<span class="tag t-${s}">${STATUS[s]||s}</span>`;
-const stats=a=>a=='docs'?DOCSTAT:a=='audit'?['draft','review','approved']:a=='calib'?['approved','expired']:a=='suppliers'?['review','approved']:CASESTAT;
+const stats=a=>a=='docs'?DOCSTAT:a=='audit'?['draft','review','approved']:a=='calib'?['approved','expired']:a=='suppliers'?['review','approved']:['trace','haccp','specs','iaudit','objectives','pest','swabs','cleaning','certs','policies'].includes(a)?DOCSTAT:CASESTAT;
 const fl=x=>(x.files||[]).filter(f=>f.kind=='file'),vs=x=>(x.files||[]).filter(f=>f.kind=='version').sort((a,b)=>a.created_at<b.created_at?-1:1);
 function render(){publishAttn();drawNav();
  if(query){const r=DB.records.filter(x=>(x.title+x.notes+x.extra+(x.files||[]).map(f=>f.name).join()).toLowerCase().includes(query));
