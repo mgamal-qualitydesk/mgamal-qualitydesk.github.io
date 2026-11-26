@@ -112,7 +112,7 @@ function open_(id){const x=DB.records.find(r=>r.id==id);if(!x)return;
  show(`<div class="row"><h3 style="margin:0;flex:1">${esc(x.title)}</h3>${tag(x.status)}${expTag(x)}</div>
  <p class="muted">${x.date||''} ${esc(x.extra)}${x.expires?' - تاريخ الانتهاء: '+x.expires+' (تنبيه قبل '+x.remind_days+' يوم)':''}</p><p>${esc(x.notes)}</p>
  <h4>${isDoc?'الإصدارات':'المرفقات'}</h4>
- <div>${list.map((f,i)=>`<div class="row" style="padding:4px 0"><span style="flex:1">📎 ${esc(f.name)} <span class="muted">${isDoc?'إصدار '+(i+1)+' - ':''}${esc(new Date(f.created_at).toLocaleString('en-GB').slice(0,16))} - ${fmtSize(f.size)}</span></span><button class="btn alt" onclick="dl('${f.id}')">تنزيل الأصل</button></div>`).join('')||'<p class="muted">مفيش ملفات</p>'}</div>
+ <div>${list.map((f,i)=>`<div class="row" style="padding:4px 0"><span style="flex:1">📎 ${esc(f.name)} <span class="muted">${isDoc?'إصدار '+(i+1)+' - ':''}${esc(new Date(f.created_at).toLocaleString('en-GB').slice(0,16))} - ${fmtSize(f.size)}</span></span>${canPrev(f.name)?`<button class="btn" onclick="prev('${f.id}')">فتح</button>`:''}<button class="btn alt" onclick="dl('${f.id}')">تنزيل الأصل</button></div>`).join('')||'<p class="muted">مفيش ملفات</p>'}</div>
  <label>${isDoc?'رفع إصدار جديد':'إضافة مرفق (PDF أو صورة أو Excel أو Word)'}</label>
  <input type="file" id="fi" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.csv,.doc,.docx" onchange="upload('${x.id}')">
  <p class="muted" id="upmsg">الحد الأقصى ${MAXMB}MB. رفع الملف لا يعني إنه معتمد.</p>
@@ -128,6 +128,16 @@ async function upload(id){const f=$('fi').files[0];if(!f)return;
   x.files=(x.files||[]).concat(r);
   if(isDoc&&x.status!='review'){await rest('records?id=eq.'+id,'PATCH',{status:'review'});x.status='review'}
   await logit(`رفع ملف "${f.name}" إلى "${x.title}"`);render();open_(id)}catch(e){m.textContent='';alert('فشل الرفع: '+e.message)}}
+const MIME={pdf:'application/pdf',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg'};
+const extOf=n=>(n.split('.').pop()||'').toLowerCase();
+const canPrev=n=>!!MIME[extOf(n)];
+let pvUrl=null;
+async function prev(fid){let f=null,rid=null;for(const r of DB.records){f=(r.files||[]).find(z=>z.id==fid);if(f){rid=r.id;break}}if(!f)return;
+ try{const r=await req('/storage/v1/object/authenticated/'+BUCKET+'/'+f.path);const b=new Blob([await r.blob()],{type:MIME[extOf(f.name)]});
+ if(pvUrl)URL.revokeObjectURL(pvUrl);pvUrl=URL.createObjectURL(b);const img=extOf(f.name)!='pdf';
+ show(`<div class="row"><b style="flex:1">${esc(f.name)}</b><button class="btn alt" onclick="open_('${rid}')">رجوع</button></div>
+ ${img?`<img src="${pvUrl}" style="width:100%;margin-top:8px">`:`<iframe src="${pvUrl}" style="width:100%;height:70vh;border:1px solid #ccc;margin-top:8px"></iframe>`}
+ <div class="row" style="margin-top:8px"><a class="btn" href="${pvUrl}" target="_blank" style="text-decoration:none">فتح في تبويب جديد</a><button class="btn alt" onclick="dl('${f.id}')">تنزيل الأصل</button></div>`)}catch(e){alert('فشل الفتح: '+e.message)}}
 async function dl(fid){let f=null;for(const r of DB.records){f=(r.files||[]).find(z=>z.id==fid);if(f)break}if(!f)return;
  try{const r=await req('/storage/v1/object/authenticated/'+BUCKET+'/'+f.path);const b=await r.blob();
   const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=f.name;document.body.appendChild(a);a.click();a.remove()}catch(e){alert('فشل التنزيل: '+e.message)}}
