@@ -44,11 +44,12 @@ const SB='https://sveeodfkamulioteaswz.supabase.co',KEY='sb_publishable_fGP6CNFX
 const AREAS=[
  ['attn','تنبيهات الانتهاء'],['suppliers','الموردين والاستلام'],['docs','المستندات والإجراءات'],['calib','المعايرة'],
  ['training','التدريب'],['complaints','الشكاوى والإجراءات التصحيحية'],['audit','التدقيق'],['trace','التتبع'],['haccp','الهاسب'],['specs','المواصفات'],['iaudit','التدقيق الداخلي'],['objectives','الأهداف'],['pest','المكافحة'],['swabs','المسحات الميكروبية'],['cleaning','النظافة والتعقيم'],['certs','شهادات الشركة'],['policies','التعليمات والسياسات'],['log','سجل التغييرات']];
-const AREA_REC=AREAS.filter(a=>!['attn','log'].includes(a[0]));
+const BASEAREAS=AREAS.slice();const AREA_REC={some:f=>AREAS.filter(a=>!['attn','log'].includes(a[0])).some(f)};
+function rebuildAreas(){AREAS.length=0;BASEAREAS.slice(0,-1).forEach(a=>AREAS.push(a));DB.sections.forEach(c=>AREAS.push([c.key,c.name]));AREAS.push(BASEAREAS[BASEAREAS.length-1])}
 const STATUS={draft:'مسودة',review:'تحت المراجعة',approved:'معتمد',open:'مفتوح',closed:'مغلق',expired:'منتهي'};
 const DOCSTAT=['draft','review','approved'],CASESTAT=['open','closed'];
 let S=null;try{S=JSON.parse(localStorage.getItem('qd.session'))}catch(e){}
-let DB={records:[],log:[]};
+let DB={records:[],log:[],branches:[],sections:[]};let br='all';const BASEN=0;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const nowS=()=>new Date().toISOString().slice(0,16).replace('T',' ');
@@ -68,8 +69,8 @@ async function req(path,opt={},retry=true){
 const rest=async(path,method='GET',body)=>{const r=await req('/rest/v1/'+path,{method,headers:{'Content-Type':'application/json',Prefer:'return=representation'},body:body===undefined?undefined:JSON.stringify(body)});const t=await r.text();return t?JSON.parse(t):null};
 // ---------- data
 async function load(){
- const [recs,log]=await Promise.all([rest('records?select=*,files(*)&order=created_at.desc'),rest('log?select=*&order=id.desc&limit=300')]);
- DB.records=recs||[];DB.log=log||[];render()}
+ const [recs,log,brs,secs]=await Promise.all([rest('records?select=*,files(*)&order=created_at.desc'),rest('log?select=*&order=id.desc&limit=300'),rest('branches?select=*&order=created_at.asc').catch(()=>[]),rest('sections?select=*&order=created_at.asc').catch(()=>[])]);
+ DB.records=recs||[];DB.log=log||[];DB.branches=brs||[];DB.sections=secs||[];rebuildAreas();render()}
 const logit=async m=>{try{const r=await rest('log','POST',{m});if(r&&r[0])DB.log.unshift(r[0])}catch(e){}};
 // ---------- expiry
 function days(x){if(!x.expires)return null;return Math.round((Date.parse(x.expires)-Date.parse(today()))/864e5)}
@@ -84,11 +85,11 @@ function attnBox(){const l=attnList();if(!l.length)return'';const bad=l.some(x=>
 // ---------- UI
 let area='suppliers',query='';
 const nav=$('nav'),main=$('main'),modal=$('modal');
-function drawNav(){const n=attnList().length;nav.innerHTML=AREAS.map(a=>`<button class="${a[0]==area?'on':''}" onclick="go('${a[0]}')">${a[1]}${a[0]=='attn'&&n?' ('+n+')':''}</button>`).join('')}
-function go(a){area=a;query='';$('q').value='';render()}
+function drawNav(){const n=attnList().length;nav.innerHTML=AREAS.map(a=>`<button class="${a[0]==area?'on':''}" onclick="go('${a[0]}')">${a[1]}${a[0]=='attn'&&n?' ('+n+')':''}</button>`).join('')+`<button class="alt" onclick="addSection()">+ قسم</button>`}
+function go(a){area=a;br='all';query='';$('q').value='';render()}
 $('q').oninput=e=>{query=e.target.value.trim().toLowerCase();render()};
 const tag=s=>`<span class="tag t-${s}">${STATUS[s]||s}</span>`;
-const stats=a=>a=='docs'?DOCSTAT:a=='audit'?['draft','review','approved']:a=='calib'?['approved','expired']:a=='suppliers'?['review','approved']:['trace','haccp','specs','iaudit','objectives','pest','swabs','cleaning','certs','policies'].includes(a)?DOCSTAT:CASESTAT;
+const stats=a=>a=='docs'?DOCSTAT:a=='audit'?['draft','review','approved']:a=='calib'?['approved','expired']:a=='suppliers'?['review','approved']:/^c_/.test(a)?DOCSTAT:['trace','haccp','specs','iaudit','objectives','pest','swabs','cleaning','certs','policies'].includes(a)?DOCSTAT:CASESTAT;
 const fl=x=>(x.files||[]).filter(f=>f.kind=='file'),vs=x=>(x.files||[]).filter(f=>f.kind=='version').sort((a,b)=>a.created_at<b.created_at?-1:1);
 function render(){publishAttn();drawNav();
  if(query){const r=DB.records.filter(x=>(x.title+x.notes+x.extra+(x.files||[]).map(f=>f.name).join()).toLowerCase().includes(query));
@@ -97,12 +98,15 @@ function render(){publishAttn();drawNav();
   main.innerHTML+=`<p class="muted">التنبيه بيظهر قبل الانتهاء بعدد الأيام المحدد في كل سجل (الافتراضي 30 يوم).</p>`;return}
  if(area=='log'){main.innerHTML=`<div class="card"><table>${DB.log.map(l=>`<tr><td>${esc(new Date(l.t).toLocaleString('en-GB').slice(0,16))}</td><td>${esc(l.m)}</td></tr>`).join('')||'<tr><td>مفيش تغييرات</td></tr>'}</table></div>`;return}
  if(area=='audit'){auditView();return}
- const r=DB.records.filter(x=>x.area==area);
+ const brs=DB.branches.filter(b=>b.area==area);if(br!='all'&&br!='none'&&!brs.some(b=>b.id==br))br='all';
+ const r=DB.records.filter(x=>x.area==area&&(br=='all'||(br=='none'?!x.branch:x.branch==br)));
+ const cnt=f=>DB.records.filter(x=>x.area==area&&f(x)).length;
+ const bbar=`<div class="row" style="margin-bottom:10px;flex-wrap:wrap"><button class="btn${br=='all'?'':' alt'}" onclick="setBr('all')">الكل (${cnt(()=>true)})</button>${brs.map(b=>`<button class="btn${br==b.id?'':' alt'}" onclick="setBr('${b.id}')">${esc(b.name)} (${cnt(x=>x.branch==b.id)})</button>`).join('')}${brs.length?`<button class="btn${br=='none'?'':' alt'}" onclick="setBr('none')">بدون فرع (${cnt(x=>!x.branch||!brs.some(b=>b.id==x.branch))})</button>`:''}<button class="btn alt" onclick="addBranch()">+ فرع</button>${br!='all'&&br!='none'?`<button class="btn alt" onclick="delBranch('${br}')" id="dbr">حذف الفرع</button>`:''}${!brs.length&&/^c_/.test(area)&&!DB.records.some(x=>x.area==area)?`<button class="btn alt" onclick="delSection()" id="dsec">حذف القسم</button>`:''}</div>`;
  const extra=area=='suppliers'?`<button class="btn alt" onclick="importCSV()">استيراد جدول (CSV)</button>`:'';
- main.innerHTML=attnBox()+`<div class="row" style="margin-bottom:10px"><button class="btn" onclick="edit()">+ سجل جديد</button>${extra}</div>`+(r.map(card).join('')||'<p class="muted">مفيش سجلات</p>')}
+ main.innerHTML=attnBox()+bbar+`<div class="row" style="margin-bottom:10px"><button class="btn" onclick="edit()">+ سجل جديد</button>${extra}</div>`+(r.map(card).join('')||'<p class="muted">مفيش سجلات</p>')}
 function card(x){const A=AREAS.find(a=>a[0]==x.area)[1];
  return `<div class="card" onclick="open_('${x.id}')"><div class="row"><b>${esc(x.title)}</b>${tag(x.status)}${expTag(x)}</div>
- <div class="muted">${A} - ${x.date||''} ${x.extra?' - '+esc(x.extra):''}</div>
+ <div class="muted">${A}${x.branch&&DB.branches.find(b=>b.id==x.branch)?' / '+esc(DB.branches.find(b=>b.id==x.branch).name):''} - ${x.date||''} ${x.extra?' - '+esc(x.extra):''}</div>
  <div class="muted">📎 ${(x.files||[]).length} مرفق${x.area=='docs'?' - إصدارات: '+vs(x).length:''}</div></div>`}
 function show(h){modal.innerHTML=`<div class="modal" onclick="if(event.target==this)hide()"><div>${h}</div></div>`}
 function hide(){modal.innerHTML=''}
@@ -205,17 +209,21 @@ async function del(id){const b=$('del');if(!b.dataset.s){b.dataset.s=1;b.textCon
  const x=DB.records.find(r=>r.id==id);try{const paths=(x.files||[]).map(f=>f.path);
   if(paths.length)await req('/storage/v1/object/'+BUCKET,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({prefixes:paths})});
   await rest('records?id=eq.'+id,'DELETE');await logit(`حذف "${x.title}"`);DB.records=DB.records.filter(r=>r.id!=id);hide();render()}catch(e){alert(e.message)}}
-function edit(id){const x=id?DB.records.find(r=>r.id==id):{title:'',date:today(),notes:'',extra:'',expires:'',remind_days:30};
- show(`<h3>${id?'تعديل':'سجل جديد'}</h3><label>العنوان</label><input id="e1" value="${esc(x.title)}">
+function brOpts(a,sel){return '<option value="">بدون فرع</option>'+DB.branches.filter(b=>b.area==a).map(b=>`<option value="${b.id}"${b.id==sel?' selected':''}>${esc(b.name)}</option>`).join('')}
+function secChg(){$('e8').innerHTML=brOpts($('e7').value,'')}
+function edit(id){const x=id?DB.records.find(r=>r.id==id):{title:'',date:today(),notes:'',extra:'',expires:'',remind_days:30,area:(AREA_REC.some(z=>z[0]==area)?area:'suppliers'),branch:(br!='all'&&br!='none'?br:null)};
+ const lock=id&&(x.area=='docs'||vs(x).length>0);
+ show(`<h3>${id?'تعديل':'سجل جديد'}</h3><label>القسم${lock?' (المستندات والإجراءات: مقفول)':''}</label><select id="e7" onchange="secChg()"${lock?' disabled':''}>${AREAS.filter(a=>!['attn','log','audit'].includes(a[0])||a[0]==x.area).map(a=>`<option value="${a[0]}"${a[0]==x.area?' selected':''}>${esc(a[1])}</option>`).join('')}</select><label>الفرع</label><select id="e8">${brOpts(x.area,x.branch)}</select><label>العنوان</label><input id="e1" value="${esc(x.title)}">
  <label>التاريخ</label><input id="e2" type="date" value="${x.date||''}"><label>تفاصيل (مثلا الدرجة أو رقم الشهادة)</label><input id="e3" value="${esc(x.extra)}">
  <label>تاريخ الانتهاء (لو فيه، مثلا شهادة أو معايرة)</label><input id="e5" type="date" value="${x.expires||''}">
  <label>نبهني قبل الانتهاء بكام يوم</label><input id="e6" type="number" min="0" max="365" value="${x.remind_days??30}">
  <label>ملاحظات</label><textarea id="e4" rows="3">${esc(x.notes)}</textarea>
  <div class="row" style="margin-top:12px"><button class="btn" onclick="saveRec('${id||''}')">حفظ</button><button class="btn alt" onclick="hide()">إلغاء</button></div>`)}
 async function saveRec(id){const t=$('e1').value.trim();if(!t){alert('اكتب عنوان');return}
- const row={title:t,date:$('e2').value||null,extra:$('e3').value,notes:$('e4').value,expires:$('e5').value||null,remind_days:parseInt($('e6').value)||0};
- try{if(id){const r=await rest('records?id=eq.'+id,'PATCH',row);const x=DB.records.find(z=>z.id==id);Object.assign(x,r[0]);await logit(`تعديل "${t}"`)}
- else{const a=AREA_REC.some(z=>z[0]==area)?area:'suppliers';row.area=a;row.status=stats(a)[0];const r=await rest('records','POST',row);r[0].files=[];DB.records.unshift(r[0]);await logit(`سجل جديد "${t}"`)}
+ const row={title:t,date:$('e2').value||null,extra:$('e3').value,notes:$('e4').value,expires:$('e5').value||null,remind_days:parseInt($('e6').value)||0,branch:$('e8').value||null};
+ if(!id||!$('e7').disabled){row.area=$('e7').value}
+ try{if(id){const x=DB.records.find(z=>z.id==id);if(row.area&&row.area!=x.area&&!stats(row.area).includes(x.status))row.status=stats(row.area)[0];const r=await rest('records?id=eq.'+id,'PATCH',row);Object.assign(x,r[0]);await logit(`تعديل "${t}"`)}
+ else{const a=row.area;row.status=stats(a)[0];const r=await rest('records','POST',row);r[0].files=[];DB.records.unshift(r[0]);await logit(`سجل جديد "${t}"`)}
  hide();render()}catch(e){alert(e.message)}}
 // ---------- CSV import with preview and warnings
 function parseCSV(s){const rows=[];let r=[],c='',q=false;for(let i=0;i<s.length;i++){const ch=s[i];
@@ -237,13 +245,25 @@ async function previewCSV(f){if(!f)return;const rows=parseCSV(await f.text()).sl
 async function confirmImport(){if(!pending.length){hide();return}
  try{const rows=pending.map(p=>({area:'suppliers',title:p.name,date:p.date,status:'review',extra:p.score?'درجة التقييم: '+p.score:'',notes:p.notes,expires:p.expires}));
  const r=await rest('records','POST',rows);r.forEach(z=>{z.files=[];DB.records.unshift(z)});await logit(`استيراد ${rows.length} مورد من CSV`);hide();render()}catch(e){alert(e.message)}}
+
+// ---------- branches and sections
+function setBr(b){br=b;render()}
+async function addBranch(){const n=(prompt('اسم الفرع الجديد')||'').trim();if(!n)return;
+ try{const r=await rest('branches','POST',{area,name:n});DB.branches.push(r[0]);await logit(`فرع جديد "${n}"`);br=r[0].id;render()}catch(e){alert(e.message)}}
+async function delBranch(id){const b=$('dbr');if(!b.dataset.s){b.dataset.s=1;b.textContent='اضغط تاني للتأكيد';return}
+ const x=DB.branches.find(z=>z.id==id);try{await rest('records?branch=eq.'+id,'PATCH',{branch:null});await rest('branches?id=eq.'+id,'DELETE');
+  DB.records.forEach(r=>{if(r.branch==id)r.branch=null});DB.branches=DB.branches.filter(z=>z.id!=id);await logit(`حذف فرع "${x.name}" (السجلات رجعت بدون فرع)`);br='all';render()}catch(e){alert(e.message)}}
+async function addSection(){const n=(prompt('اسم القسم الجديد')||'').trim();if(!n)return;
+ try{const key='c_'+Date.now().toString(36);const r=await rest('sections','POST',{key,name:n});DB.sections.push(r[0]);rebuildAreas();await logit(`قسم جديد "${n}"`);go(key)}catch(e){alert(e.message)}}
+async function delSection(){const b=$('dsec');if(!b.dataset.s){b.dataset.s=1;b.textContent='اضغط تاني للتأكيد';return}
+ const c=DB.sections.find(z=>z.key==area);if(!c)return;try{await rest('sections?id=eq.'+c.id,'DELETE');DB.sections=DB.sections.filter(z=>z.id!=c.id);rebuildAreas();await logit(`حذف قسم "${c.name}"`);go('suppliers')}catch(e){alert(e.message)}}
 // ---------- audit pack
-function auditView(){const reqs=[['موردين معتمدين','suppliers'],['إجراءات معتمدة','docs'],['معايرة سارية','calib'],['سجلات تدريب','training'],['شكاوى مقفولة','complaints']];
+function auditView(){const reqs=AREAS.filter(z=>!['attn','log','audit'].includes(z[0])).map(z=>[z[1],z[0]]);
  main.innerHTML=attnBox()+`<div class="card"><b>حزمة التدقيق</b><p class="muted">الجدول بيعرض الحالة المسجلة فقط. وجود مرفق لا يثبت المطابقة، المراجعة مطلوبة.</p><table><tr><th>المتطلب</th><th>سجلات</th><th>معتمد/مقفول</th><th>محتاج متابعة</th></tr>`+
- reqs.map(([n,a])=>{const r=DB.records.filter(x=>x.area==a),ok=r.filter(x=>['approved','closed'].includes(x.status)&&expState(x)!='expired').length;return `<tr><td>${n}</td><td>${r.length}</td><td class="ok">${ok}</td><td class="${r.length-ok?'warn':''}">${r.length-ok}</td></tr>`}).join('')+`</table></div>`
+ reqs.map(([n,a])=>{const row=(nm,r,ind)=>{const ok=r.filter(x=>['approved','closed'].includes(x.status)&&expState(x)!='expired').length;return `<tr><td style="${ind?'padding-right:18px;color:#666':''}">${ind?'↳ ':''}${esc(nm)}</td><td>${r.length}</td><td class="ok">${ok}</td><td class="${r.length-ok?'warn':''}">${r.length-ok}</td></tr>`},all=DB.records.filter(x=>x.area==a);return row(n,all,false)+DB.branches.filter(b=>b.area==a).map(b=>row(b.name,all.filter(x=>x.branch==b.id),true)).join('')}).join('')+`</table></div>`
  +`<div class="card"><b>تنبيهات حالة</b>`+(DB.records.filter(x=>['expired','open','review'].includes(x.status)).map(x=>`<div>${tag(x.status)} ${esc(x.title)}</div>`).join('')||'<p class="muted">مفيش</p>')+`</div>`
  +`<div class="row"><button class="btn" onclick="edit()">+ سجل تدقيق</button></div>`+DB.records.filter(x=>x.area=='audit').map(card).join('')}
-$('exp').onclick=()=>{const b=new Blob([JSON.stringify({exported:nowS(),records:DB.records,log:DB.log},null,1)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='qd-backup-'+today()+'.json';a.click()};
+$('exp').onclick=()=>{const b=new Blob([JSON.stringify({exported:nowS(),records:DB.records,log:DB.log,branches:DB.branches,sections:DB.sections},null,1)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='qd-backup-'+today()+'.json';a.click()};
 // ---------- auth
 function signedOut(){S=null;localStorage.removeItem('qd.session');$('app').hidden=true;$('login').hidden=false}
 async function start(){$('login').hidden=true;$('app').hidden=false;$('who').textContent=S.email||'';try{await load()}catch(e){if(!S)return;main.innerHTML='<div class="card warn">تعذر تحميل البيانات: '+esc(e.message)+'</div>'}}
