@@ -366,7 +366,7 @@ async function shipFromLoad(key,v){window._ship='';if(key!='load')return;const j
  if(o.data.v.h_status=='Shipped'){window._ship='already '+o.data.serial;return}
  const nv=Object.assign({},o.data.v,{h_status:'Shipped'});const r=await rest('records?id=eq.'+o.id,'PATCH',{data:Object.assign({},o.data,{v:nv}),status:'approved'});Object.assign(o,r[0]);await logit('أمر التحميل '+o.data.serial+' بقى Shipped (تقرير تحميل بنفس الـ Job Order)');window._ship='shipped '+o.data.serial}
 function jobHint(k,m){const e=document.querySelector('#rf [data-k="'+k+'"]');if(!e)return;let h=document.getElementById('jobhint');if(!h){h=document.createElement('div');h.id='jobhint';h.className='muted';e.insertAdjacentElement('afterend',h)}h.textContent=m}
-function jobFill(){if(window._jfBusy)return;window._jfBusy=1;setTimeout(()=>{window._jfBusy=0},300);const key=_rf.key,k=key=='load'?'h_order':key=='anl'?'h_job':null;if(!k)return;const ev=window.event;if(!ev||ev.type!='change'||!ev.target||ev.target.dataset.k!=k)return;
+function jobFill(){const key=_rf.key,k=key=='load'?'h_order':key=='anl'?'h_job':null;if(!k)return;const ev=window.event;if(!ev||ev.type!='change'||!ev.target||ev.target.dataset.k!=k)return;if(window._jfBusy)return;window._jfBusy=1;setTimeout(()=>{window._jfBusy=0},300);
  const job=(ev.target.value||'').trim();if(!job)return;const m=DB.records.filter(r=>dtype(r)=='lord'&&((r.data.v.h_job||'').trim()==job));
  if(m.length!=1){jobHint(k,m.length?'في '+m.length+' أوامر بنفس الرقم - مفيش تعبئة تلقائية':'مفيش أمر تحميل بالرقم ده');return}
  const o=lordNorm('lord',m[0].data.v),v=recvVals(),fill=(kk,val)=>{if(val!==undefined&&val!==''&&!v[kk])v[kk]=val;},rows=[];for(let r=0;r<12;r++)if(o['t'+r+'_prod']||o['t'+r+'_lot'])rows.push(r);
