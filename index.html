@@ -145,15 +145,27 @@ async function unzip(buf){const u=new Uint8Array(buf),dv=new DataView(buf);let e
  if(e<0)throw new Error('ملف غير صالح');const n=dv.getUint16(e+10,true);let p=dv.getUint32(e+16,true);const files={};const dec=new TextDecoder();
  for(let i=0;i<n;i++){const meth=dv.getUint16(p+10,true),csz=dv.getUint32(p+20,true),nl=dv.getUint16(p+28,true),xl=dv.getUint16(p+30,true),cl=dv.getUint16(p+32,true),lo=dv.getUint32(p+42,true);
   const name=dec.decode(u.subarray(p+46,p+46+nl));p+=46+nl+xl+cl;
-  if(!/^(word\/document\.xml|word\/numbering\.xml|xl\/(workbook|sharedStrings)\.xml|xl\/_rels\/workbook\.xml\.rels|xl\/worksheets\/[^\/]+\.xml)$/.test(name))continue;
+  if(!/^(word\/document\.xml|word\/numbering\.xml|word\/header\d+\.xml|word\/_rels\/[^\/]+\.rels|word\/media\/[^\/]+\.(png|jpe?g|gif)|xl\/(workbook|sharedStrings)\.xml|xl\/_rels\/workbook\.xml\.rels|xl\/worksheets\/[^\/]+\.xml)$/.test(name))continue;
   const ds=lo+30+dv.getUint16(lo+26,true)+dv.getUint16(lo+28,true),raw=u.subarray(ds,ds+csz);
   let data;if(meth==0)data=raw;else if(meth==8){const st=new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'));data=new Uint8Array(await new Response(st).arrayBuffer())}else continue;
-  files[name]=dec.decode(data)}
+  if(/^word\/media\//.test(name)){let b='';for(let k=0;k<data.length;k+=8192)b+=String.fromCharCode.apply(null,data.subarray(k,k+8192));files[name]='data:image/'+(/\.png$/.test(name)?'png':/\.gif$/.test(name)?'gif':'jpeg')+';base64,'+btoa(b)}else files[name]=dec.decode(data)}
  return files}
 const xml=s=>new DOMParser().parseFromString(s,'application/xml');
 const WNS='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const wk=(el,t)=>[...el.children].filter(c=>c.localName==t);
-function docRun(r){let h='';for(const c of r.children){if(c.localName=='t')h+=esc(c.textContent);else if(c.localName=='tab')h+='&emsp;';else if(c.localName=='br')h+='<br>'}
+
+const RNS='http://schemas.openxmlformats.org/officeDocument/2006/relationships';let CTX={files:{},rels:{}};
+function setCtx(files,part){const p='word/_rels/'+part+'.rels',m={};if(files[p])for(const r of xml(files[p]).getElementsByTagName('Relationship'))m[r.getAttribute('Id')]=r.getAttribute('Target');CTX={files,rels:m}}
+function imgFor(id,w){const t=CTX.rels[id];if(!t)return '';const d=CTX.files['word/'+t.replace(/^\.?\//,'').replace(/^word\//,'')];return d&&d.startsWith('data:')?`<img src="${d}" style="${w?'width:'+w+'px;':'max-width:160px;'}max-width:100%;height:auto;vertical-align:middle">`:''}
+function drawn(c){const n=c.localName;
+ if(n=='AlternateContent'){const ch=[...c.children].find(x=>x.localName=='Choice');return ch?[...ch.children].map(drawn).join(''):''}
+ if(n=='drawing'){let h='';const ex=c.getElementsByTagNameNS('*','extent')[0],w=ex?Math.round(+ex.getAttribute('cx')/9525):0;
+  for(const b of c.getElementsByTagNameNS('*','blip'))h+=imgFor(b.getAttributeNS(RNS,'embed'),w);
+  const tb=c.getElementsByTagNameNS('*','txbxContent')[0];if(tb)h+='<div>'+docBody(tb)+'</div>';return h}
+ if(n=='pict'){let h='';for(const b of c.getElementsByTagNameNS('*','imagedata'))h+=imgFor(b.getAttributeNS(RNS,'id'),0);
+  const tb=c.getElementsByTagNameNS('*','txbxContent')[0];if(tb)h+='<div>'+docBody(tb)+'</div>';return h}
+ return ''}
+function docRun(r){let h='';for(const c of r.children){if(c.localName=='t')h+=esc(c.textContent);else if(c.localName=='tab')h+='&emsp;';else if(c.localName=='br')h+='<br>';else if(['drawing','pict','AlternateContent'].includes(c.localName))h+=drawn(c)}
  const rp=wk(r,'rPr')[0];if(rp){const on=t=>{const x=wk(rp,t)[0];return x&&x.getAttributeNS(WNS,'val')!='0'&&x.getAttributeNS(WNS,'val')!='false'};
   if(on('b'))h='<b>'+h+'</b>';if(on('i'))h='<i>'+h+'</i>';if(on('u'))h='<u>'+h+'</u>'}return h}
 function docPara(p){let h='';const walk=el=>{for(const c of el.children){if(c.localName=='r')h+=docRun(c);else if(c.localName=='hyperlink'||c.localName=='ins'||c.localName=='smartTag')walk(c)}};walk(p);
@@ -175,9 +187,14 @@ let xlsCache=null;function xlsPick(i){const b=$('xlsbody');b.innerHTML=xlsHtml(x
 async function prevOffice(f,rid){const ext=extOf(f.name);
  show(`<div class="row"><b style="flex:1">${esc(f.name)}</b><button class="btn alt" onclick="open_('${rid}')">رجوع</button></div><p class="muted" id="pvmsg">جاري التحضير...</p><div id="pvbody"></div>`);
  try{const r=await req('/storage/v1/object/authenticated/'+BUCKET+'/'+f.path);const files=await unzip(await r.arrayBuffer());let h='';
-  if(ext=='docx'){if(!files['word/document.xml'])throw new Error('الملف مش DOCX سليم');const body=xml(files['word/document.xml']).getElementsByTagNameNS(WNS,'body')[0];h=`<div style="max-height:62vh;overflow:auto;border:1px solid #ddd;padding:10px;border-radius:8px">${docBody(body)}</div>`}
+  if(ext=='docx'){if(!files['word/document.xml'])throw new Error('الملف مش DOCX سليم');const doc=xml(files['word/document.xml']),body=doc.getElementsByTagNameNS(WNS,'body')[0];setCtx(files,'document.xml');let hh='';
+  const sps=doc.getElementsByTagNameNS(WNS,'sectPr'),sp=sps[sps.length-1];
+  if(sp){const refs=[...sp.children].filter(x=>x.localName=='headerReference'),tp=wk(sp,'titlePg').length?'first':'default',order=[...refs.filter(x=>x.getAttributeNS(WNS,'type')==tp),...refs.filter(x=>x.getAttributeNS(WNS,'type')=='default'),...refs];
+   for(const ref of order){const t=CTX.rels[ref.getAttributeNS(RNS,'id')];if(!t)continue;const hx=files['word/'+t.replace(/^\.?\//,'')];if(!hx)continue;setCtx(files,t.replace(/^.*\//,''));
+    const x=docBody(xml(hx).documentElement);setCtx(files,'document.xml');if((x.includes('<img')||x.replace(/<[^>]*>|&nbsp;/g,'').trim())){hh='<div style="border:1px solid #ddd;padding:8px;margin-bottom:8px;background:#fafafa;overflow:auto">'+x+'</div>';break}}}
+  h=`<div style="max-height:70vh;overflow:auto;border:1px solid #ddd;padding:10px;border-radius:8px">${hh}${docBody(body)}</div>`}
   else{xlsCache=xlsSheets(files);h=`<div class="row" style="margin-bottom:6px">${xlsCache.map((s,i)=>`<button class="btn shb${i?' alt':''}" onclick="xlsPick(${i})">${esc(s.name)}</button>`).join('')}</div><div id="xlsbody">${xlsHtml(xlsCache[0])}</div>`}
-  $('pvmsg').textContent='عرض تقريبي للقراءة فقط. الصور والتنسيق المعقد ممكن ميظهروش، والتواريخ في Excel ممكن تظهر كأرقام. نزّل الأصل للدقة.';$('pvbody').innerHTML=h+`<div class="row" style="margin-top:8px"><button class="btn alt" onclick="dl('${f.id}')">تنزيل الأصل</button></div>`}
+  $('pvmsg').textContent='عرض تقريبي للقراءة فقط. التنسيق المعقد ممكن يختلف، والتواريخ في Excel ممكن تظهر كأرقام. نزّل الأصل للدقة.';$('pvbody').innerHTML=h+`<div class="row" style="margin-top:8px"><button class="btn alt" onclick="dl('${f.id}')">تنزيل الأصل</button></div>`}
  catch(e){$('pvmsg').textContent='تعذر العرض ('+e.message+'). نزّل الأصل.';$('pvbody').innerHTML=`<button class="btn alt" onclick="dl('${f.id}')">تنزيل الأصل</button>`}}
 async function dl(fid){let f=null;for(const r of DB.records){f=(r.files||[]).find(z=>z.id==fid);if(f)break}if(!f)return;
  try{const r=await req('/storage/v1/object/authenticated/'+BUCKET+'/'+f.path);const b=await r.blob();
