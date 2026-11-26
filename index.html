@@ -130,14 +130,55 @@ async function upload(id){const f=$('fi').files[0];if(!f)return;
   await logit(`رفع ملف "${f.name}" إلى "${x.title}"`);render();open_(id)}catch(e){m.textContent='';alert('فشل الرفع: '+e.message)}}
 const MIME={pdf:'application/pdf',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg'};
 const extOf=n=>(n.split('.').pop()||'').toLowerCase();
-const canPrev=n=>!!MIME[extOf(n)];
+const canPrev=n=>!!MIME[extOf(n)]||['docx','xlsx'].includes(extOf(n));
 let pvUrl=null;
 async function prev(fid){let f=null,rid=null;for(const r of DB.records){f=(r.files||[]).find(z=>z.id==fid);if(f){rid=r.id;break}}if(!f)return;
+ if(['docx','xlsx'].includes(extOf(f.name)))return prevOffice(f,rid);
  try{const r=await req('/storage/v1/object/authenticated/'+BUCKET+'/'+f.path);const b=new Blob([await r.blob()],{type:MIME[extOf(f.name)]});
  if(pvUrl)URL.revokeObjectURL(pvUrl);pvUrl=URL.createObjectURL(b);const img=extOf(f.name)!='pdf';
  show(`<div class="row"><b style="flex:1">${esc(f.name)}</b><button class="btn alt" onclick="open_('${rid}')">رجوع</button></div>
  ${img?`<img src="${pvUrl}" style="width:100%;margin-top:8px">`:`<iframe src="${pvUrl}" style="width:100%;height:70vh;border:1px solid #ccc;margin-top:8px"></iframe>`}
  <div class="row" style="margin-top:8px"><a class="btn" href="${pvUrl}" target="_blank" style="text-decoration:none">فتح في تبويب جديد</a><button class="btn alt" onclick="dl('${f.id}')">تنزيل الأصل</button></div>`)}catch(e){alert('فشل الفتح: '+e.message)}}
+
+// ---------- Word/Excel approximate preview (no external libraries)
+async function unzip(buf){const u=new Uint8Array(buf),dv=new DataView(buf);let e=u.length-22;while(e>=0&&dv.getUint32(e,true)!=0x06054b50)e--;
+ if(e<0)throw new Error('ملف غير صالح');const n=dv.getUint16(e+10,true);let p=dv.getUint32(e+16,true);const files={};const dec=new TextDecoder();
+ for(let i=0;i<n;i++){const meth=dv.getUint16(p+10,true),csz=dv.getUint32(p+20,true),nl=dv.getUint16(p+28,true),xl=dv.getUint16(p+30,true),cl=dv.getUint16(p+32,true),lo=dv.getUint32(p+42,true);
+  const name=dec.decode(u.subarray(p+46,p+46+nl));p+=46+nl+xl+cl;
+  if(!/^(word\/document\.xml|word\/numbering\.xml|xl\/(workbook|sharedStrings)\.xml|xl\/_rels\/workbook\.xml\.rels|xl\/worksheets\/[^\/]+\.xml)$/.test(name))continue;
+  const ds=lo+30+dv.getUint16(lo+26,true)+dv.getUint16(lo+28,true),raw=u.subarray(ds,ds+csz);
+  let data;if(meth==0)data=raw;else if(meth==8){const st=new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'));data=new Uint8Array(await new Response(st).arrayBuffer())}else continue;
+  files[name]=dec.decode(data)}
+ return files}
+const xml=s=>new DOMParser().parseFromString(s,'application/xml');
+const WNS='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+const wk=(el,t)=>[...el.children].filter(c=>c.localName==t);
+function docRun(r){let h='';for(const c of r.children){if(c.localName=='t')h+=esc(c.textContent);else if(c.localName=='tab')h+='&emsp;';else if(c.localName=='br')h+='<br>'}
+ const rp=wk(r,'rPr')[0];if(rp){const on=t=>{const x=wk(rp,t)[0];return x&&x.getAttributeNS(WNS,'val')!='0'&&x.getAttributeNS(WNS,'val')!='false'};
+  if(on('b'))h='<b>'+h+'</b>';if(on('i'))h='<i>'+h+'</i>';if(on('u'))h='<u>'+h+'</u>'}return h}
+function docPara(p){let h='';const walk=el=>{for(const c of el.children){if(c.localName=='r')h+=docRun(c);else if(c.localName=='hyperlink'||c.localName=='ins'||c.localName=='smartTag')walk(c)}};walk(p);
+ const pp=wk(p,'pPr')[0];let tag='p',pre='';if(pp){const st=wk(pp,'pStyle')[0],sv=st?st.getAttributeNS(WNS,'val'):'';const m=/^(?:Heading|heading)\s?(\d)/.exec(sv);if(m)tag='h'+Math.min(6,+m[1]+1);else if(/^Title$/i.test(sv))tag='h2';
+  if(wk(pp,'numPr')[0]||/^List/i.test(sv))pre='• ';const jc=wk(pp,'jc')[0];}
+ return h.trim()||pre?`<${tag} style="margin:6px 0">${pre}${h||'&nbsp;'}</${tag}>`:'<div style="height:8px"></div>'}
+function docBody(el){let h='';for(const c of el.children){if(c.localName=='p')h+=docPara(c);else if(c.localName=='tbl'){h+='<table style="border:1px solid #bbb;margin:8px 0">'+wk(c,'tr').map(tr=>'<tr>'+wk(tr,'tc').map(tc=>'<td style="border:1px solid #ccc;padding:4px;vertical-align:top">'+docBody(tc)+'</td>').join('')+'</tr>').join('')+'</table>'}}return h}
+function colIdx(ref){const m=/^([A-Z]+)/.exec(ref);let n=0;for(const ch of m[1])n=n*26+ch.charCodeAt(0)-64;return n-1}
+function xlsSheets(files){const ss=files['xl/sharedStrings.xml']?[...xml(files['xl/sharedStrings.xml']).getElementsByTagName('si')].map(si=>[...si.getElementsByTagName('t')].map(t=>t.textContent).join('')):[];
+ const wb=xml(files['xl/workbook.xml']),rels={};[...xml(files['xl/_rels/workbook.xml.rels']).getElementsByTagName('Relationship')].forEach(r=>rels[r.getAttribute('Id')]=r.getAttribute('Target'));
+ return [...wb.getElementsByTagName('sheet')].map(sh=>{const rid=sh.getAttribute('r:id')||[...sh.attributes].find(a=>a.localName=='id').value;let t=rels[rid]||'';t=t.replace(/^\/?(xl\/)?/,'xl/');const sx=files[t];
+  const rows=[];let trunc=false;if(sx){const d=xml(sx);const rs=[...d.getElementsByTagName('row')];for(const r of rs){if(rows.length>=500){trunc=true;break}const cells=[];
+   for(const c of r.children){if(c.localName!='c')continue;const i=colIdx(c.getAttribute('r')||'A1');if(i>60)continue;const ty=c.getAttribute('t'),v=c.getElementsByTagName('v')[0],is=c.getElementsByTagName('is')[0];let val='';
+    if(ty=='s'&&v)val=ss[+v.textContent]||'';else if(ty=='inlineStr'&&is)val=[...is.getElementsByTagName('t')].map(x=>x.textContent).join('');else if(ty=='b'&&v)val=v.textContent=='1'?'TRUE':'FALSE';else if(v)val=v.textContent;cells[i]=val}rows.push(cells)}}
+  return{name:sh.getAttribute('name'),rows,trunc}})}
+function xlsHtml(sh){const w=Math.max(0,...sh.rows.map(r=>r.length));if(!sh.rows.length)return'<p class="muted">الورقة فاضية</p>';
+ return`<div style="overflow:auto;max-height:60vh"><table style="direction:ltr;border:1px solid #bbb">`+sh.rows.map(r=>'<tr>'+Array.from({length:w},(_,i)=>`<td style="border:1px solid #ddd;padding:3px 6px;white-space:nowrap">${esc(r[i]??'')}</td>`).join('')+'</tr>').join('')+`</table></div>`+(sh.trunc?'<p class="muted">اتعرض أول 500 صف بس. نزّل الأصل للباقي.</p>':'')}
+let xlsCache=null;function xlsPick(i){const b=$('xlsbody');b.innerHTML=xlsHtml(xlsCache[i]);[...document.querySelectorAll('.shb')].forEach((x,j)=>x.className='btn shb'+(j==i?'':' alt'))}
+async function prevOffice(f,rid){const ext=extOf(f.name);
+ show(`<div class="row"><b style="flex:1">${esc(f.name)}</b><button class="btn alt" onclick="open_('${rid}')">رجوع</button></div><p class="muted" id="pvmsg">جاري التحضير...</p><div id="pvbody"></div>`);
+ try{const r=await req('/storage/v1/object/authenticated/'+BUCKET+'/'+f.path);const files=await unzip(await r.arrayBuffer());let h='';
+  if(ext=='docx'){if(!files['word/document.xml'])throw new Error('الملف مش DOCX سليم');const body=xml(files['word/document.xml']).getElementsByTagNameNS(WNS,'body')[0];h=`<div style="max-height:62vh;overflow:auto;border:1px solid #ddd;padding:10px;border-radius:8px">${docBody(body)}</div>`}
+  else{xlsCache=xlsSheets(files);h=`<div class="row" style="margin-bottom:6px">${xlsCache.map((s,i)=>`<button class="btn shb${i?' alt':''}" onclick="xlsPick(${i})">${esc(s.name)}</button>`).join('')}</div><div id="xlsbody">${xlsHtml(xlsCache[0])}</div>`}
+  $('pvmsg').textContent='عرض تقريبي للقراءة فقط. الصور والتنسيق المعقد ممكن ميظهروش، والتواريخ في Excel ممكن تظهر كأرقام. نزّل الأصل للدقة.';$('pvbody').innerHTML=h+`<div class="row" style="margin-top:8px"><button class="btn alt" onclick="dl('${f.id}')">تنزيل الأصل</button></div>`}
+ catch(e){$('pvmsg').textContent='تعذر العرض ('+e.message+'). نزّل الأصل.';$('pvbody').innerHTML=`<button class="btn alt" onclick="dl('${f.id}')">تنزيل الأصل</button>`}}
 async function dl(fid){let f=null;for(const r of DB.records){f=(r.files||[]).find(z=>z.id==fid);if(f)break}if(!f)return;
  try{const r=await req('/storage/v1/object/authenticated/'+BUCKET+'/'+f.path);const b=await r.blob();
   const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=f.name;document.body.appendChild(a);a.click();a.remove()}catch(e){alert('فشل التنزيل: '+e.message)}}
