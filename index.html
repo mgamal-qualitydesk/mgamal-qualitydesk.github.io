@@ -356,7 +356,18 @@ function linkedAn(x){const lots=lotsOf(x.data.v).map(z=>z.toLowerCase()).filter(
  if(!l.length)return `<p class="muted">مفيش تحاليل مرتبطة بالـ Lot ده.</p>`;
  return `<h4>التحاليل المرتبطة (بالـ Lot)</h4><table>${l.map(r=>{const v=r.data.v;return `<tr onclick="open_('${r.id}')" style="cursor:pointer"><td>${esc(v.h_prod||'')}</td><td>${esc(v.h_req||'')}</td><td>${esc(v.h_review||'')}</td><td>${esc(v.h_dec||'')}</td><td>${esc(v.h_lab||'')}</td></tr>`}).join('')}</table>`}
 function reqLookup(dest){const d=(dest||'').trim().toLowerCase();return d?DB.records.find(r=>dtype(r)=='req'&&(r.data.v.h_name||'').trim().toLowerCase()==d):null}
-function recvLive(){if(!window._rf||_rf.key!='lord')return;const g=k=>document.querySelector('#rf [data-k="'+k+'"]');
+function jobHint(k,m){const e=document.querySelector('#rf [data-k="'+k+'"]');if(!e)return;let h=document.getElementById('jobhint');if(!h){h=document.createElement('div');h.id='jobhint';h.className='muted';e.insertAdjacentElement('afterend',h)}h.textContent=m}
+function jobFill(){const key=_rf.key,k=key=='load'?'h_order':key=='anl'?'h_job':null;if(!k)return;const ev=window.event;if(!ev||ev.type!='change'||!ev.target||ev.target.dataset.k!=k)return;
+ const job=(ev.target.value||'').trim();if(!job)return;const m=DB.records.filter(r=>dtype(r)=='lord'&&((r.data.v.h_job||'').trim()==job));
+ if(m.length!=1){jobHint(k,m.length?'في '+m.length+' أوامر بنفس الرقم - مفيش تعبئة تلقائية':'مفيش أمر تحميل بالرقم ده');return}
+ const o=lordNorm('lord',m[0].data.v),v=recvVals(),fill=(kk,val)=>{if(val!==undefined&&val!==''&&!v[kk])v[kk]=val;},rows=[];for(let r=0;r<12;r++)if(o['t'+r+'_prod']||o['t'+r+'_lot'])rows.push(r);
+ let n=_rf.nr;
+ if(key=='load'){if(/^\d{4}-\d\d-\d\d$/.test(o.h_date||''))fill('h_date',o.h_date);fill('h_container',(o.h_cont||'').replace(/\s*\n\s*/g,' / '));fill('h_customer',o.h_ccode);rows.forEach((r,i)=>{fill('t'+i+'_name',o['t'+r+'_prod']);fill('t'+i+'_batch',o['t'+r+'_lot'])});n=Math.min(12,Math.max(n,rows.length))}
+ else{const r0=rows[0];fill('h_cust',o.h_cname);fill('h_prod',r0!=null?o['t'+r0+'_prod']:'');fill('h_lot',r0!=null?o['t'+r0+'_lot']:o.h_lot);
+  const rq=[['Pesticides','h_pest'],['Micro','h_micro'],['Heavy Metals','h_heavy'],['Virus','h_virus'],['Elements','h_elem']].filter(([l,q])=>o[q]&&!/^non$/i.test(o[q])).map(([l,q])=>l+': '+o[q]);fill('h_req',rq.length?rq.join(' / '):(o.h_pest?'Non':''));
+  fill('h_cdate',o.h_cdate);fill('h_cno',o.h_cno);if(r0!=null){fill('h_lab',o['t'+r0+'_lab']);fill('h_review',o['t'+r0+'_review']);fill('h_dec',o['t'+r0+'_dec'])}}
+ recvForm(_rf.key,_rf.id,v,n);jobHint(k,'اتملى تلقائي من أمر التحميل '+m[0].data.serial+(key=='anl'&&rows.length>1?' (فيه '+rows.length+' منتجات - اتاخد الأول)':''))}
+function recvLive(){if(window._rf&&(_rf.key=='load'||_rf.key=='anl'))return jobFill();if(!window._rf||_rf.key!='lord')return;const g=k=>document.querySelector('#rf [data-k="'+k+'"]');
  const d=g('h_dest');if(d&&d.value&&d.dataset.last!=d.value){d.dataset.last=d.value;const q=reqLookup(d.value);if(q){const m={ddest:'dest',pest:'pest',micro:'micro',heavy:'heavy',virus:'virus',elem:'elem',resp:'resp',coa:'coa',freq:'freq'};for(const k in m){const e=g('h_'+k);if(e&&!e.value)e.value=q.data.v['h_'+m[k]]||''}const cc=g('h_ccode');if(cc&&!cc.value)cc.value=q.data.v.h_code||'';const cn=g('h_cname');if(cn&&!cn.value)cn.value=q.data.v.h_cust||''}}}
 const rv=(x,k)=>((x.data||{}).v||{})[k]??'';
 function recvSuggest(f,v){let bad=[];for(const b of f.blocks){for(const r of b.rows||[]){if(b.t=='checks'&&v['c_'+r[0]]=='غير مطابق')bad.push(r[1]);if(b.t=='lab'&&v['lr_'+r[0]]=='غير مطابق')bad.push(r[1]);if(b.t=='scores'){const s=v['s_'+r[0]];if(s!==undefined&&s!==''&&s!='لا ينطبق'&&+s<2)bad.push(r[1])}}}
