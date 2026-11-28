@@ -372,11 +372,19 @@ function custDests(name,depth){const n=nkey(name);if(!n)return[];depth=depth||0;
  if(od&&nkey(od.data.v.h_cname)!=n)return custDests(od.data.v.h_cname,depth+1);
  return out}
 function custWire(){const root=document.getElementById('rf');if(!root||!window._rf)return;
- const c=root.querySelector('[data-k="h_cname"],[data-k="h_cust"]'),d=root.querySelector('[data-k="h_dest"]');
+ const c=root.querySelector('[data-k="h_cname"],[data-k="h_cust"]');if(!c)return;
  const mk=(id,arr)=>{let dl=document.getElementById(id);if(!dl){dl=document.createElement('datalist');dl.id=id;document.body.appendChild(dl)}dl.innerHTML=arr.map(x=>'<option value="'+esc(x)+'"></option>').join('')};
- if(c){mk('dlcust',custGroups());c.setAttribute('list','dlcust')}
- if(d){mk('dldest',c?custDests(c.value):[]);d.setAttribute('list','dldest')}
- if(c&&d){const upd=()=>{mk('dldest',custDests(c.value));if(window._rf&&_rf.key=='anl')anlDest()};c.addEventListener('input',upd);c.addEventListener('change',upd)}
+ mk('dlcust',custGroups());c.setAttribute('list','dlcust');
+ if(!root.querySelector('[data-k="h_dest"]'))return;
+ const cur=()=>root.querySelector('[data-k="h_dest"]');
+ const build=()=>{const d=cur();if(!d)return;const L=custDests(c.value),v=d.value||'';
+  if(!L.length){if(d.tagName=='SELECT'){const i=document.createElement('input');i.dataset.k='h_dest';i.value=v;i.setAttribute('oninput','recvLive()');i.setAttribute('onchange','recvLive()');i.style.width='100%';d.replaceWith(i)}return}
+  if(d.tagName!='SELECT'){const s=document.createElement('select');s.dataset.k='h_dest';s.setAttribute('onchange','recvLive()');s.style.width='100%';d.replaceWith(s)}
+  const s=cur(),opts=L.slice();if(v&&!opts.some(x=>nkey(x)==nkey(v)))opts.push(v);
+  s.innerHTML='<option value="">اختر الجهة</option>'+opts.map(x=>'<option value="'+esc(x)+'"'+(x===v?' selected':'')+'>'+esc(x)+'</option>').join('')};
+ build();
+ const upd=()=>{build();if(window._rf&&_rf.key=='anl')anlDest()};
+ c.addEventListener('input',upd);c.addEventListener('change',upd);
 }
 function anlDest(){if(!window._rf||_rf.key!='anl')return;const root=document.getElementById('rf');if(!root)return;const d=root.querySelector('[data-k="h_dest"]');if(!d||!d.value||d.dataset.last==d.value)return;d.dataset.last=d.value;
  const q=reqLookup(d.value);if(!q)return;const rv=q.data.v;
