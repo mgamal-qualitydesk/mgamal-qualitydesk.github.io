@@ -357,10 +357,20 @@ function linkedAn(x){const lots=lotsOf(x.data.v).map(z=>z.toLowerCase()).filter(
  return `<h4>التحاليل المرتبطة (بالـ Lot)</h4><table>${l.map(r=>{const v=r.data.v;return `<tr onclick="open_('${r.id}')" style="cursor:pointer"><td>${esc(v.h_prod||'')}</td><td>${esc(v.h_req||'')}</td><td>${esc(v.h_review||'')}</td><td>${esc(v.h_dec||'')}</td><td>${esc(v.h_lab||'')}</td></tr>`}).join('')}</table>`}
 const nkey=s=>String(s||'').trim().toLowerCase().replace(/\s+/g,'_');
 function reqRows(){return DB.records.filter(r=>dtype(r)=='req')}
-function custGroups(){const out=[];reqRows().forEach(r=>{const c=(r.data.v.h_cust||'').trim();if(c&&!out.some(x=>nkey(x)==nkey(c)))out.push(c)});return out.sort()}
-function custDests(name){const n=nkey(name);if(!n)return[];const rs=reqRows();let g='';
- const h=rs.find(r=>nkey(r.data.v.h_cust)==n);if(h)g=nkey(h.data.v.h_cust);else{const h2=rs.find(r=>nkey(r.data.v.h_name)==n);if(h2)g=nkey(h2.data.v.h_cust)}
- const out=[];rs.forEach(r=>{const nm=(r.data.v.h_name||'').trim();if(g&&nkey(r.data.v.h_cust)==g&&nm&&!out.some(x=>nkey(x)==nkey(nm)))out.push(nm)});return out}
+function custGroups(){const out=[];const add=c=>{c=(c||'').trim();if(c&&!out.some(x=>nkey(x)==nkey(c)))out.push(c)};
+ reqRows().forEach(r=>add(r.data.v.h_cust));
+ DB.records.forEach(r=>{if(dtype(r)=='lord')add((r.data.v||{}).h_cname)});
+ return out.sort()}
+function custDests(name,depth){const n=nkey(name);if(!n)return[];depth=depth||0;if(depth>2)return[name];
+ const rs=reqRows(),out=[],add=nm=>{nm=String(nm||'').trim();if(nm&&!out.some(x=>nkey(x)==nkey(nm)))out.push(nm)};
+ DB.records.forEach(r=>{if(dtype(r)!='lord')return;const v=r.data.v||{};if(nkey(v.h_cname)==n)add(v.h_dest)});
+ rs.forEach(r=>{const v=r.data.v||{};if(nkey(v.h_cust)==n)add(v.h_name);const k=nkey(v.h_name);if(k.startsWith(n+'_'))add(v.h_name)});
+ if(out.length)return out;
+ const hit=rs.find(r=>nkey(r.data.v.h_name)==n);
+ if(hit&&(hit.data.v.h_cust||'').trim()&&nkey(hit.data.v.h_cust)!=n)return custDests(hit.data.v.h_cust,depth+1);
+ const od=DB.records.find(r=>dtype(r)=='lord'&&nkey((r.data.v||{}).h_dest)==n&&((r.data.v||{}).h_cname||'').trim());
+ if(od&&nkey(od.data.v.h_cname)!=n)return custDests(od.data.v.h_cname,depth+1);
+ return out}
 function custWire(){const root=document.getElementById('rf');if(!root||!window._rf)return;
  const c=root.querySelector('[data-k="h_cname"],[data-k="h_cust"]'),d=root.querySelector('[data-k="h_dest"]');
  const mk=(id,arr)=>{let dl=document.getElementById(id);if(!dl){dl=document.createElement('datalist');dl.id=id;document.body.appendChild(dl)}dl.innerHTML=arr.map(x=>'<option value="'+esc(x)+'"></option>').join('')};
