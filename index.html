@@ -376,7 +376,7 @@ function custWire(){const root=document.getElementById('rf');if(!root||!window._
  const mk=(id,arr)=>{let dl=document.getElementById(id);if(!dl){dl=document.createElement('datalist');dl.id=id;document.body.appendChild(dl)}dl.innerHTML=arr.map(x=>'<option value="'+esc(x)+'"></option>').join('')};
  if(c){mk('dlcust',custGroups());c.setAttribute('list','dlcust')}
  if(d){mk('dldest',c?custDests(c.value):[]);d.setAttribute('list','dldest')}
- if(c&&d){const upd=()=>{const L=custDests(c.value);mk('dldest',L);if(!d.value&&L.length==1){d.value=L[0];recvLive()}if(window._rf&&_rf.key=='anl')anlDest()};c.addEventListener('input',upd);c.addEventListener('change',upd)}
+ if(c&&d){const upd=()=>{mk('dldest',custDests(c.value));if(window._rf&&_rf.key=='anl')anlDest()};c.addEventListener('input',upd);c.addEventListener('change',upd)}
 }
 function anlDest(){if(!window._rf||_rf.key!='anl')return;const root=document.getElementById('rf');if(!root)return;const d=root.querySelector('[data-k="h_dest"]');if(!d||!d.value||d.dataset.last==d.value)return;d.dataset.last=d.value;
  const q=reqLookup(d.value);if(!q)return;const rv=q.data.v;
