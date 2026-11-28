@@ -924,8 +924,15 @@ function auditView(){const reqs=AREAS.filter(z=>!['attn','log','audit'].includes
  +`<div class="row"><button class="btn" onclick="edit()">+ سجل تدقيق</button></div>`+DB.records.filter(x=>x.area=='audit').map(card).join('')}
 $('exp').onclick=()=>{const b=new Blob([JSON.stringify({exported:nowS(),records:DB.records,log:DB.log,branches:DB.branches,sections:DB.sections},null,1)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='qd-backup-'+today()+'.json';a.click()};
 // ---------- auth
+// ---------- restricted recorder (receiving inspection reports only)
+const RCV_RE=/^(chem|bags|carton|sacks|ppe|fresh:|frozen:)/;
+function isRecorder(){try{const p=JSON.parse(atob(S.access.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));return (p.app_metadata||{}).qd_role=='recorder'}catch(e){return false}}
+function rRender(){const L=DB.records.filter(x=>x.area=='suppliers'&&x.data&&RCV_RE.test(x.data.type||'')).slice(0,150);
+ main.innerHTML=`<div class="card"><h3 style="margin-top:0">تسجيل محاضر فحص الاستلام</h3><div class="muted">تقدر تضيف محضر فحص جديد وتشوف المحاضر. مفيش تعديل أو حذف.</div><div class="row" style="margin-top:8px"><button class="btn" onclick="recvStart()">+ محضر فحص استلام جديد</button></div></div>`+(L.map(x=>`<div class="card"><div class="row"><b style="flex:1">${esc(x.title)}</b>${tag(x.status)}</div><div class="muted">${esc(x.date||'')}</div><div class="row" style="margin-top:6px"><button class="btn alt" onclick="rView('${x.id}')">عرض</button></div></div>`).join('')||'<p class="muted">مفيش محاضر لسه</p>')}
+function rView(id){const x=DB.records.find(r=>r.id==id);if(!x)return;show(`<div class="row"><b style="flex:1">${esc(x.data.serial)}</b>${tag(x.status)}</div><div style="max-height:62vh;overflow:auto;background:#fff;padding:8px;border:1px solid #ddd;font-size:13px">${recvHtml(x)}</div><div class="row" style="margin-top:10px"><button class="btn" onclick="recvPrint('${id}')">طباعة / PDF</button><button class="btn alt" onclick="hide()">إغلاق</button></div>`)}
+function rSetup(){if(!isRecorder())return;render=rRender;drawNav=function(){};$('nav').hidden=true;$('q').hidden=true;$('exp').hidden=true}
 function signedOut(){S=null;localStorage.removeItem('qd.session');$('app').hidden=true;$('login').hidden=false}
-async function start(){$('login').hidden=true;$('app').hidden=false;$('who').textContent=S.email||'';try{await load()}catch(e){if(!S)return;main.innerHTML='<div class="card warn">تعذر تحميل البيانات: '+esc(e.message)+'</div>'}}
+async function start(){$('login').hidden=true;$('app').hidden=false;$('who').textContent=S.email||'';rSetup();try{await load()}catch(e){if(!S)return;main.innerHTML='<div class="card warn">تعذر تحميل البيانات: '+esc(e.message)+'</div>'}}
 $('lgo').onclick=async()=>{$('lerr').textContent='';try{await tokenReq('password',{email:$('le').value.trim(),password:$('lp').value});$('lp').value='';start()}catch(e){$('lerr').textContent=e.message}};
 $('lp').onkeydown=e=>{if(e.key=='Enter')$('lgo').click()};
 $('out').onclick=()=>{signedOut()};
